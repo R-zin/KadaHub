@@ -3,9 +3,7 @@ import { useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { DashboardCard, DataTable, Button, Badge } from "../components/ui";
 import { DashboardLayout } from "../layouts/DashboardLayout";
-import { categories } from "../data/categories";
 import { useApp } from "../context/AppContext";
-import { sellerService } from "../services/sellerService";
 import { formatCurrency } from "../utils/format";
 import type { Product } from "../types";
 
@@ -33,7 +31,13 @@ export const SellerPage = () => (
 
 const SellerOverview = () => {
   const { products, orders } = useApp();
-  const stats = sellerService.stats(products, orders);
+  const stats = {
+    totalSales: orders.length,
+    orders: orders.length,
+    products: products.length,
+    lowStock: products.filter((p) => p.stock > 0 && p.stock <= 20).length,
+    revenue: orders.reduce((sum, o) => sum + o.total, 0)
+  };
   return (
     <div>
       <h2 className="text-2xl font-black">Dashboard</h2>
@@ -71,7 +75,7 @@ const SellerProducts = () => {
 };
 
 const AddProduct = () => {
-  const { addProduct } = useApp();
+  const { addProduct, categories } = useApp();
   const [category, setCategory] = useState("Electronics");
   const active = categories.find((item) => item.name === category) ?? categories[0];
   const [form, setForm] = useState({
@@ -83,22 +87,20 @@ const AddProduct = () => {
     tryOn: false
   });
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    addProduct({
+    await addProduct({
       name: form.name,
-      description: "Seller-created mock product ready for backend integration.",
+      description: "Seller-listed product.",
       price: Number(form.price),
       originalPrice: Number(form.price) + 10,
       discount: 10,
       category,
       subcategory: form.subcategory,
       brand: form.brand,
-      images: [active.image],
+      images: [active?.image].filter(Boolean) as string[],
       stock: Number(form.stock),
-      sellerId: "s4",
-      sellerName: "UrbanWear",
-      specifications: { Source: "Seller dashboard", Status: "Mock product" },
+      specifications: { Source: "Seller dashboard" },
       tags: [category.toLowerCase()],
       isFeatured: false,
       isNew: true,
@@ -151,7 +153,7 @@ const SellerOrders = () => {
 };
 
 const SellerReports = () => {
-  const { products } = useApp();
+  const { products, categories } = useApp();
   const grouped = categories.map((category) => ({ category: category.name, value: products.filter((product) => product.category === category.name).length }));
   return <div><h2 className="text-2xl font-black">Reports</h2><div className="mt-5 grid gap-3">{grouped.map((item) => <div key={item.category} className="rounded-lg border border-slate-200 bg-white p-4"><div className="flex justify-between text-sm font-semibold"><span>{item.category}</span><span>{item.value}</span></div><div className="mt-2 h-2 rounded bg-slate-100"><div className="h-2 rounded bg-primary-600" style={{ width: `${Math.min(item.value * 6, 100)}%` }} /></div></div>)}</div></div>;
 };

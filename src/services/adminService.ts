@@ -1,20 +1,22 @@
-import type { Order, Product, ReturnRequest, User } from "../types";
+import type { User } from "../types";
+import { api } from "./api";
+
+export interface AdminStats {
+  totalRevenue: number; totalOrders: number; activeUsers: number; sellers: number;
+  products: number; lowStock: number; pendingReturns: number;
+}
+export interface AdminUser extends User { isActive: boolean; createdAt: string }
+export interface Transaction {
+  id: string; orderNumber: string; type: "charge" | "refund"; status: string;
+  amount: number; currency: string; reference: string; date: string;
+}
 
 export const adminService = {
-  stats: (products: Product[], orders: Order[], users: User[], returns: ReturnRequest[]) => ({
-    totalRevenue: orders.reduce((sum, order) => sum + order.total, 0),
-    totalOrders: orders.length,
-    activeUsers: users.length + 128,
-    sellers: 12,
-    products: products.length,
-    pendingReturns: returns.filter((item) => item.status !== "Refunded" && item.status !== "Rejected").length,
-    lowStock: products.filter((product) => product.stock <= 20).length
-  }),
-  categoryDistribution: (products: Product[]) =>
-    Object.entries(
-      products.reduce<Record<string, number>>((acc, product) => {
-        acc[product.category] = (acc[product.category] ?? 0) + 1;
-        return acc;
-      }, {})
-    ).map(([label, value]) => ({ label, value }))
+  stats: () => api<{ stats: AdminStats }>("/admin/stats").then((d) => d.stats),
+  getUsers: () => api<{ users: AdminUser[] }>("/admin/users").then((d) => d.users),
+  setUserActive: (id: string, isActive: boolean) =>
+    api<{ user: AdminUser }>(`/admin/users/${id}/active`, { method: "PATCH", body: { isActive } }).then((d) => d.user),
+  categoryDistribution: () => api<{ distribution: { label: string; value: number }[] }>("/admin/categories/distribution").then((d) => d.distribution),
+  getTransactions: () => api<{ transactions: Transaction[] }>("/admin/transactions").then((d) => d.transactions),
+  getReports: () => api<{ salesByDay: { day: string; orders: number; revenue: number }[]; inventoryByCategory: { category: string; stock: number; products: number }[] }>("/admin/reports")
 };

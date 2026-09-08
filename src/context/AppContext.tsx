@@ -1,154 +1,221 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import { products as initialProducts } from "../data/products";
-import { mockOrders } from "../data/orders";
-import { demoAccounts } from "../services/authService";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { authService } from "../services/authService";
 import { cartService } from "../services/cartService";
+import { categoryService } from "../services/categoryService";
 import { notificationService } from "../services/notificationService";
 import { orderService } from "../services/orderService";
-import { paymentService } from "../services/paymentService";
+import { productService, type ProductQuery } from "../services/productService";
+import { returnService } from "../services/returnService";
 import { tryOnService } from "../services/tryOnService";
-import type { Address, CartItem, Notification, Order, Product, ReturnRequest, Role, TryOnResult, User } from "../types";
+import { wishlistService } from "../services/wishlistService";
+import { clearToken, getToken } from "../services/api";
+import type { Address, CartItem, Category, Notification, Order, Product, ReturnRequest, Role, TryOnResult, User } from "../types";
 
 interface AppContextValue {
   user: User | null;
+  authLoading: boolean;
   products: Product[];
+  productsLoading: boolean;
+  categories: Category[];
   cart: CartItem[];
   wishlist: string[];
   orders: Order[];
   returns: ReturnRequest[];
   notifications: Notification[];
   savedTryOns: TryOnResult[];
-  login: (role: Role) => void;
-  register: (name: string, email: string, role: Role) => void;
+  login: (email: string, password: string) => Promise<User>;
+  register: (name: string, email: string, password: string, role: Role, storeName?: string) => Promise<User>;
   logout: () => void;
-  addToCart: (product: Product, quantity?: number) => void;
-  updateCartQuantity: (productId: string, quantity: number) => void;
-  removeFromCart: (productId: string) => void;
-  clearCart: () => void;
-  toggleWishlist: (product: Product) => void;
+  refreshProducts: (query?: ProductQuery) => Promise<void>;
+  addToCart: (product: Product, quantity?: number) => Promise<void>;
+  updateCartQuantity: (productId: string, quantity: number) => Promise<void>;
+  removeFromCart: (productId: string) => Promise<void>;
+  clearCart: () => Promise<void>;
+  toggleWishlist: (product: Product) => Promise<void>;
   checkout: (address: Address) => Promise<Order>;
-  addReturnRequest: (orderId: string, productId: string, reason: string) => void;
-  addProduct: (product: Omit<Product, "id" | "rating" | "reviewCount">) => void;
-  updateProductStock: (productId: string, stock: number) => void;
-  deleteProduct: (productId: string) => void;
-  updateOrderStatus: (orderId: string) => void;
+  refreshOrders: () => Promise<void>;
+  advanceOrderStatus: (orderId: string) => Promise<void>;
+  addReturnRequest: (orderId: string, productId: string, reason: string) => Promise<void>;
+  refreshReturns: () => Promise<void>;
+  addProduct: (product: Partial<Product>) => Promise<Product>;
+  updateProductStock: (productId: string, stock: number) => Promise<void>;
+  deleteProduct: (productId: string) => Promise<void>;
   saveTryOn: (result: TryOnResult) => void;
   generateTryOn: (product: Product, sourceImage: string, size: string, color: string) => Promise<TryOnResult>;
-  markNotificationsRead: () => void;
-  dismissNotification: (notificationId: string) => void;
-  pushNotification: (message: string) => void;
+  refreshNotifications: () => Promise<void>;
+  markNotificationsRead: () => Promise<void>;
+  dismissNotification: (notificationId: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(demoAccounts[0]);
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [cart, setCart] = useState<CartItem[]>([
-    { product: initialProducts[1], quantity: 1 },
-    { product: initialProducts[10], quantity: 1 },
-    { product: initialProducts[22], quantity: 1 },
-    { product: initialProducts[40], quantity: 1 }
-  ]);
-  const [wishlist, setWishlist] = useState<string[]>(["p003", "p011", "p021"]);
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [wishlist, setWishlist] = useState<string[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [returns, setReturns] = useState<ReturnRequest[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [savedTryOns, setSavedTryOns] = useState<TryOnResult[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([
-    notificationService.create("Order #EC10234 confirmed"),
-    notificationService.create("Your order has been shipped"),
-    notificationService.create("Selected clothing now supports Virtual Try-On")
-  ]);
 
-  const pushNotification = (message: string) => {
-    setNotifications((items) => [notificationService.create(message), ...items].slice(0, 12));
-  };
+  // ---- loaders ------------------------------------------------------------
+  const refreshProducts = useCallback(async (query?: ProductQuery) => {
+    setProductsLoading(true);
+    try { setProducts(await productService.getProducts(query)); }
+    catch { /* keep existing */ } finally { setProductsLoading(false); }
+  }, []);
 
-  const value = useMemo<AppContextValue>(
-    () => ({
-      user,
-      products,
-      cart,
-      wishlist,
-      orders,
-      returns,
-      notifications,
-      savedTryOns,
-      login: (role) => {
-        const account = demoAccounts.find((item) => item.role === role) ?? demoAccounts[0];
-        setUser(account);
-        pushNotification(`Signed in as ${account.name}`);
-      },
-      register: (name, email, role) => {
-        const account = { id: `u-${Date.now()}`, name, email, role };
-        setUser(account);
-        pushNotification("Account created successfully");
-      },
-      logout: () => {
-        setUser(null);
-        pushNotification("Signed out");
-      },
-      addToCart: (product, quantity = 1) => {
-        setCart((items) => cartService.addItem(items, product, quantity));
-        pushNotification(`${product.name} added to cart`);
-      },
-      updateCartQuantity: (productId, quantity) => setCart((items) => cartService.updateQuantity(items, productId, quantity)),
-      removeFromCart: (productId) => setCart((items) => cartService.removeItem(items, productId)),
-      clearCart: () => setCart([]),
-      toggleWishlist: (product) => {
-        setWishlist((items) => (items.includes(product.id) ? items.filter((id) => id !== product.id) : [...items, product.id]));
-        pushNotification(`${product.name} ${wishlist.includes(product.id) ? "removed from" : "added to"} wishlist`);
-      },
-      checkout: async (address) => {
-        await paymentService.verifyStock(cart);
-        await paymentService.processPayment();
-        const order = await orderService.createOrder(cart, address);
-        setOrders((items) => [order, ...items]);
-        setProducts((items) =>
-          items.map((product) => {
-            const cartItem = cart.find((item) => item.product.id === product.id);
-            return cartItem ? { ...product, stock: Math.max(product.stock - cartItem.quantity, 0) } : product;
-          })
-        );
-        setCart([]);
-        pushNotification(`Order #${order.orderNumber} confirmed`);
-        return order;
-      },
-      addReturnRequest: (orderId, productId, reason) => {
-        setReturns((items) => [orderService.createReturnRequest(orderId, productId, reason), ...items]);
-        pushNotification("Return request submitted");
-      },
-      addProduct: (product) => {
-        const next = {
-          ...product,
-          id: `p${Date.now()}`,
-          rating: 0,
-          reviewCount: 0,
-          isVirtualTryOnSupported: product.category === "Clothing" && product.isVirtualTryOnSupported
-        };
-        setProducts((items) => [next, ...items]);
-        pushNotification("New seller product added");
-      },
-      updateProductStock: (productId, stock) =>
-        setProducts((items) => items.map((product) => (product.id === productId ? { ...product, stock } : product))),
-      deleteProduct: (productId) => setProducts((items) => items.filter((product) => product.id !== productId)),
-      updateOrderStatus: (orderId) => {
-        setOrders((items) =>
-          items.map((order) => (order.id === orderId ? { ...order, status: orderService.nextStatus(order.status) } : order))
-        );
-        pushNotification("Delivery status updated");
-      },
-      saveTryOn: (result) => {
-        setSavedTryOns((items) => [result, ...items]);
-        pushNotification("Try-On result saved");
-      },
-      generateTryOn: (product, sourceImage, size, color) => tryOnService.generatePreview(product, sourceImage, size, color),
-      markNotificationsRead: () => setNotifications((items) => items.map((item) => ({ ...item, read: true }))),
-      dismissNotification: (notificationId) => setNotifications((items) => items.filter((item) => item.id !== notificationId)),
-      pushNotification
-    }),
-    [cart, notifications, orders, products, returns, savedTryOns, user, wishlist]
-  );
+  const refreshOrders = useCallback(async () => {
+    if (!getToken()) return setOrders([]);
+    try { setOrders(await orderService.getOrders()); } catch { setOrders([]); }
+  }, []);
+
+  const refreshReturns = useCallback(async () => {
+    if (!getToken()) return setReturns([]);
+    try { setReturns(await returnService.getReturns()); } catch { setReturns([]); }
+  }, []);
+
+  const refreshNotifications = useCallback(async () => {
+    if (!getToken()) return setNotifications([]);
+    try { setNotifications(await notificationService.getAll()); } catch { setNotifications([]); }
+  }, []);
+
+  const loadPrivate = useCallback(async () => {
+    if (!getToken()) {
+      setCart([]); setWishlist([]); setOrders([]); setReturns([]); setNotifications([]); setSavedTryOns([]);
+      return;
+    }
+    const [cartData, wishlistData, , , , tryOns] = await Promise.all([
+      cartService.getCart().catch(() => []),
+      wishlistService.getIds().catch(() => []),
+      refreshOrders(), refreshReturns(), refreshNotifications(),
+      tryOnService.getSaved().catch(() => [])
+    ]);
+    setCart(cartData);
+    setWishlist(wishlistData);
+    setSavedTryOns(tryOns);
+  }, [refreshOrders, refreshReturns, refreshNotifications]);
+
+  // ---- bootstrap: categories + products (public), then session ------------
+  useEffect(() => {
+    (async () => {
+      try { setCategories(await categoryService.getCategories()); } catch { setCategories([]); }
+      refreshProducts();
+      if (getToken()) {
+        try { setUser(await authService.me()); await loadPrivate(); }
+        catch { clearToken(); setUser(null); }
+      }
+      setAuthLoading(false);
+    })();
+  }, [refreshProducts, loadPrivate]);
+
+  // Force logout when the session expires (broadcast by the API client on 401).
+  useEffect(() => {
+    const onExpired = () => { setUser(null); setCart([]); setWishlist([]); setOrders([]); setReturns([]); setNotifications([]); setSavedTryOns([]); };
+    window.addEventListener("kadahub:session-expired", onExpired);
+    return () => window.removeEventListener("kadahub:session-expired", onExpired);
+  }, []);
+
+  // ---- auth ---------------------------------------------------------------
+  const login = useCallback(async (email: string, password: string) => {
+    const { user } = await authService.login(email, password);
+    setUser(user);
+    await loadPrivate();
+    return user;
+  }, [loadPrivate]);
+
+  const register = useCallback(async (name: string, email: string, password: string, role: Role, storeName?: string) => {
+    const { user } = await authService.register(name, email, password, role, storeName);
+    setUser(user);
+    await loadPrivate();
+    return user;
+  }, [loadPrivate]);
+
+  const logout = useCallback(() => {
+    authService.logout();
+    clearToken();
+    setUser(null);
+    setCart([]); setWishlist([]); setOrders([]); setReturns([]); setNotifications([]); setSavedTryOns([]);
+  }, []);
+
+  // ---- cart ---------------------------------------------------------------
+  const addToCart = useCallback(async (product: Product, quantity = 1) => {
+    setCart(await cartService.addItem(product.id, quantity));
+  }, []);
+  const updateCartQuantity = useCallback(async (productId: string, quantity: number) => {
+    setCart(await cartService.updateQuantity(productId, quantity));
+  }, []);
+  const removeFromCart = useCallback(async (productId: string) => {
+    setCart(await cartService.removeItem(productId));
+  }, []);
+  const clearCart = useCallback(async () => { setCart(await cartService.clear()); }, []);
+  const toggleWishlist = useCallback(async (product: Product) => {
+    setWishlist(await wishlistService.toggle(product.id));
+  }, []);
+
+  // ---- checkout / orders ----------------------------------------------------
+  const checkout = useCallback(async (address: Address) => {
+    const order = await orderService.checkout(address);
+    setCart([]);
+    await Promise.all([refreshOrders(), refreshProducts(), refreshNotifications()]);
+    return order;
+  }, [refreshOrders, refreshProducts, refreshNotifications]);
+
+  const advanceOrderStatus = useCallback(async (orderId: string) => {
+    await orderService.advanceStatus(orderId);
+    await refreshOrders();
+  }, [refreshOrders]);
+
+  // ---- returns ---------------------------------------------------------------
+  const addReturnRequest = useCallback(async (orderId: string, productId: string, reason: string) => {
+    await returnService.request(orderId, productId, reason);
+    await Promise.all([refreshReturns(), refreshNotifications()]);
+  }, [refreshReturns, refreshNotifications]);
+
+  // ---- products (seller/admin) ------------------------------------------------
+  const addProduct = useCallback(async (product: Partial<Product>) => {
+    const created = await productService.addProduct(product);
+    await refreshProducts();
+    return created;
+  }, [refreshProducts]);
+  const updateProductStock = useCallback(async (productId: string, stock: number) => {
+    await productService.updateStock(productId, stock);
+    await refreshProducts();
+  }, [refreshProducts]);
+  const deleteProduct = useCallback(async (productId: string) => {
+    await productService.deleteProduct(productId);
+    await refreshProducts();
+  }, [refreshProducts]);
+
+  // ---- try-on ------------------------------------------------------------------
+  const saveTryOn = useCallback((result: TryOnResult) => setSavedTryOns((items) => [result, ...items]), []);
+  const generateTryOn = useCallback(async (product: Product, sourceImage: string, size: string, color: string) => {
+    const result = await tryOnService.generatePreview(product.id, sourceImage, size, color);
+    setSavedTryOns((items) => [result, ...items]);
+    return result;
+  }, []);
+
+  // ---- notifications -------------------------------------------------------------
+  const markNotificationsRead = useCallback(async () => {
+    setNotifications(await notificationService.markAllRead());
+  }, []);
+  const dismissNotification = useCallback(async (notificationId: string) => {
+    setNotifications(await notificationService.dismiss(notificationId));
+  }, []);
+
+  const value = useMemo<AppContextValue>(() => ({
+    user, authLoading, products, productsLoading, categories, cart, wishlist, orders, returns, notifications, savedTryOns,
+    login, register, logout, refreshProducts, addToCart, updateCartQuantity, removeFromCart, clearCart, toggleWishlist,
+    checkout, refreshOrders, advanceOrderStatus, addReturnRequest, refreshReturns, addProduct,
+    updateProductStock, deleteProduct, saveTryOn, generateTryOn, refreshNotifications, markNotificationsRead, dismissNotification
+  }), [user, authLoading, products, productsLoading, categories, cart, wishlist, orders, returns, notifications, savedTryOns,
+    login, register, logout, refreshProducts, addToCart, updateCartQuantity, removeFromCart, clearCart, toggleWishlist,
+    checkout, refreshOrders, advanceOrderStatus, addReturnRequest, refreshReturns, addProduct,
+    updateProductStock, deleteProduct, saveTryOn, generateTryOn, refreshNotifications, markNotificationsRead, dismissNotification]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };

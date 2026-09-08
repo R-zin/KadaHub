@@ -4,7 +4,6 @@ import { DashboardCard, DataTable, Button } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
 import { DashboardLayout } from "../layouts/DashboardLayout";
 import { useApp } from "../context/AppContext";
-import { deliveryService } from "../services/deliveryService";
 import { formatCurrency } from "../utils/format";
 
 const navItems = [
@@ -24,7 +23,13 @@ export const DeliveryPage = () => (
 
 const DeliveryOverview = () => {
   const { orders } = useApp();
-  const stats = deliveryService.stats(orders);
+  const stats = {
+    assigned: orders.length,
+    pending: orders.filter((o) => o.status === "Processing" || o.status === "Dispatched").length,
+    outForDelivery: orders.filter((o) => o.status === "Out for Delivery").length,
+    delivered: orders.filter((o) => o.status === "Delivered").length,
+    failed: 0
+  };
   return (
     <div>
       <h2 className="text-2xl font-black">Delivery Statistics</h2>
@@ -41,7 +46,7 @@ const DeliveryOverview = () => {
 };
 
 const DeliveryOrders = () => {
-  const { orders, updateOrderStatus } = useApp();
+  const { orders, advanceOrderStatus } = useApp();
   return (
     <div>
       <h2 className="text-xl font-bold">Assigned Orders</h2>
@@ -54,7 +59,7 @@ const DeliveryOrders = () => {
             `${order.deliveryAddress.line1}, ${order.deliveryAddress.city}`,
             <StatusBadge status={order.status} />,
             formatCurrency(order.total),
-            <Button className="min-h-8 px-3 py-1" onClick={() => updateOrderStatus(order.id)}>Update Status</Button>
+            <Button className="min-h-8 px-3 py-1" disabled={order.status === "Delivered"} onClick={() => advanceOrderStatus(order.id)}>Update Status</Button>
           ])}
         />
       </div>

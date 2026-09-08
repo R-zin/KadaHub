@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button, EmptyState, ErrorState } from "../components/ui";
 import { useApp } from "../context/AppContext";
-import { defaultAddress } from "../data/orders";
+import { defaultAddress } from "../constants";
 import { cartService } from "../services/cartService";
 import type { Address } from "../types";
 import { formatCurrency } from "../utils/format";

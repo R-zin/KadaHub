@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button, DashboardCard, EmptyState } from "../components/ui";
 import { useApp } from "../context/AppContext";
-import { defaultAddress } from "../data/orders";
+import { defaultAddress } from "../constants";
 import { compactDate } from "../utils/format";
 
 export const AccountPage = () => {

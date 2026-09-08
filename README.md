@@ -1,94 +1,138 @@
-# KadaHub – E-Commerce Management System
+# KadaHub — E-Commerce Management System
 
-KadaHub is a multi-category E-Commerce Management System that allows users to browse, search, and purchase products across categories such as Electronics, Clothing, Home & Living, Beauty, Sports, Books, and more.
+A full-stack multi-category marketplace with role-based interfaces for
+**Customers, Sellers, Delivery Agents, and Administrators**, plus a stubbed
+**AI Virtual Try-On** for supported clothing.
 
-The system includes role-based interfaces for Customers, Sellers, Delivery Agents, and Administrators. A Virtual Try-On feature is available for supported clothing products.
+- **Frontend** — React 19 + TypeScript + Vite + Tailwind (this repo root)
+- **Backend** — Node.js + Express REST API (`server/`)
+- **Database** — PostgreSQL via **Supabase** (`pg` driver, plain-SQL migrations)
+- **Auth** — JWT with role-based access control + sliding 15-min inactivity logout
+- **Payments** — mock gateway (Stripe-test-mode style) behind a swappable interface
+- **Notifications** — console driver now, email/SMS provider pluggable
+- **AI Try-On** — mock compositor behind `tryOnService.generatePreview(...)`
 
-## Features
+---
 
-* User Login and Registration
-* Multi-category Product Browsing
-* Product Search, Filtering and Sorting
-* Product Details and Wishlist
-* Shopping Cart and Checkout
-* Order Tracking
-* Returns and Refund Management
-* Virtual Try-On for Supported Clothing
-* Seller Dashboard
-* Inventory Management
-* Delivery Agent Dashboard
-* Administrator Dashboard
-* Notifications
+## Repository layout
 
-## Technologies Used
-
-* React
-* TypeScript
-* Vite
-* Tailwind CSS
-* React Router
-* Lucide React
-* React Context API
-
-## Running Locally
-
-### 1. Clone the Repository
-
-```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
+```
+.
+├── src/                  # React SPA (pages, components, services, context)
+├── server/
+│   ├── src/
+│   │   ├── index.js      # entrypoint
+│   │   ├── app.js        # express app assembly
+│   │   ├── config.js
+│   │   ├── db/           # pool, migrate.js, schema.sql, seed.js
+│   │   ├── middleware/   # auth (JWT+RBAC), validate, errorHandler
+│   │   ├── services/     # swappable drivers: payment, storage, tryon, notification
+│   │   │                 # + domain services: authDomain, productService, orderService,
+│   │   │                 #   cartService, returnService, tryOnDomain, adminService, ...
+│   │   ├── controllers/
+│   │   └── routes/
+│   └── tests/            # auth / checkout / return core-flow tests
+└── README.md
 ```
 
-### 2. Navigate to the Project Folder
+---
+
+## Prerequisites
+
+- Node.js 18+
+- A **Supabase** project (or any PostgreSQL database). Get the connection string from
+  *Supabase → Project Settings → Database → Connection string (URI)*.
+
+---
+
+## 1. Backend setup
 
 ```bash
-cd <PROJECT_FOLDER_NAME>
+cd server
+npm install
+cp .env.example .env
 ```
 
-### 3. Install Dependencies
+Edit `server/.env`:
+
+- `DATABASE_URL` → your Supabase Postgres URI
+  (e.g. `postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres`).
+  The pooler/“Session” URI works well. TLS is enabled automatically for Supabase hosts.
+- `JWT_SECRET` → a long random string.
+
+Then create the schema and load sample data:
+
+```bash
+npm run migrate   # applies server/src/db/schema.sql
+npm run seed      # one user per role + 8 categories + 55 products + 2 sample orders
+```
+
+Start the API:
+
+```bash
+npm run dev       # http://localhost:4000  (health: /api/health)
+```
+
+### Demo logins (password `password123`)
+
+| Role     | Email              |
+|----------|--------------------|
+| Customer | customer@demo.com  |
+| Seller   | seller@demo.com    |
+| Delivery | delivery@demo.com  |
+| Admin    | admin@demo.com     |
+
+---
+
+## 2. Frontend setup
+
+In a second terminal, from the repo root:
 
 ```bash
 npm install
+npm run dev       # Vite dev server, usually http://127.0.0.1:5173
 ```
 
-If PowerShell gives an execution-policy error on Windows, use:
+The SPA calls the API at the base URL in `src/services/api.ts`
+(default `http://localhost:4000/api`). Set `VITE_API_URL` in a root `.env`
+to override.
+
+---
+
+## 3. Tests
 
 ```bash
-npm.cmd install
+cd server
+cp .env.example .env    # point DATABASE_URL at a SEPARATE test database
+npm run migrate
+npm test                # node --test tests/  (auth, checkout, return flows)
 ```
 
-### 4. Start the Development Server
+> The test suite truncates the domain tables — never run it against production data.
 
-```bash
-npm run dev
-```
+---
 
-On Windows PowerShell, you can also use:
+## Swappable service interfaces
 
-```bash
-npm.cmd run dev
-```
+Each cross-cutting concern is isolated behind a driver selected by env var, so a real
+provider can replace the dev stub without touching callers:
 
-### 5. Open the Application
+| Concern        | Interface (`server/src/services/`) | Dev driver | Swap in via |
+|----------------|------------------------------------|------------|-------------|
+| Payments       | `paymentService.charge/refund`     | `mock`     | `PAYMENT_DRIVER` |
+| File storage   | `storageService.save`              | `local`    | `STORAGE_DRIVER` |
+| Notifications  | `notificationService.notify`       | `console`  | `NOTIFICATION_DRIVER` |
+| AI Try-On      | `tryOnService.generatePreview`     | `mock`     | `TRYON_DRIVER` |
 
-After starting the development server, open the URL shown in the terminal. It will usually be:
+---
 
-```text
-http://localhost:5173
-```
+## Security notes
 
-## Project Structure
-
-```text
-src/
-├── components/
-├── pages/
-├── layouts/
-├── context/
-├── services/
-├── data/
-└── ...
-```
-
-## Note
-
-This version focuses on the implemented User Interface and basic navigation. Backend and database integration can be added as the project progresses.
+- Passwords hashed with **bcrypt**; never logged.
+- JWT auth on all private routes; **RBAC** enforced server-side per route.
+- Sessions use a **sliding expiration**: each authenticated response returns an
+  `X-Refresh-Token`; after 15 minutes of inactivity the token expires.
+- Central error handler returns user-friendly messages and never leaks stack traces.
+- `helmet` security headers, CORS restricted to `CLIENT_ORIGIN`, rate-limited auth
+  endpoints, and parameterized queries throughout (no string-concatenated SQL).
+- HTTPS redirect enforced in production (`NODE_ENV=production` behind a proxy).

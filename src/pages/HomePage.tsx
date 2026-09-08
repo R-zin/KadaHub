@@ -3,11 +3,10 @@ import { Link } from "react-router-dom";
 import { CategoryCard } from "../components/CategoryCard";
 import { ProductGrid } from "../components/ProductGrid";
 import { Button, SectionHeader } from "../components/ui";
-import { categories } from "../data/categories";
 import { useApp } from "../context/AppContext";
 
 export const HomePage = () => {
-  const { products } = useApp();
+  const { products, categories } = useApp();
   const featured = products.filter((product) => product.isFeatured).slice(0, 8);
   const electronics = products.filter((product) => product.category === "Electronics").slice(0, 4);
   const home = products.filter((product) => product.category === "Home & Living").slice(0, 4);

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button, EmptyState, ErrorState } from "../components/ui";
 import { useApp } from "../context/AppContext";
-import { canUseVirtualTryOn } from "../services/tryOnService";
+import { canUseVirtualTryOn, tryOnService } from "../services/tryOnService";
 import type { TryOnResult } from "../types";
 
 export const TryOnPage = () => {
@@ -23,14 +23,21 @@ export const TryOnPage = () => {
     return <div className="mx-auto max-w-5xl px-4 py-10"><EmptyState title="Virtual Try-On unavailable" message="This feature is shown only for selected supported clothing products." action={<Link to="/products"><Button>Browse Products</Button></Link>} /></div>;
   }
 
-  const onFile = (file?: File) => {
+  const onFile = async (file?: File) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       setError("Failed image upload. Please select an image file.");
       return;
     }
-    setSourceImage(URL.createObjectURL(file));
-    setError("");
+    try {
+      setError("");
+      setProcessing(true);
+      setSourceImage(await tryOnService.uploadImage(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed image upload. Please try again.");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const run = async () => {

@@ -1,12 +1,8 @@
 import type { Notification } from "../types";
+import { api } from "./api";
 
 export const notificationService = {
-  create(message: string): Notification {
-    return {
-      id: `note-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      message,
-      createdAt: new Date().toISOString(),
-      read: false
-    };
-  }
+  getAll: () => api<{ notifications: Notification[] }>("/notifications").then((d) => d.notifications),
+  markAllRead: () => api<{ notifications: Notification[] }>("/notifications/read-all", { method: "POST" }).then((d) => d.notifications),
+  dismiss: (id: string) => api<{ notifications: Notification[] }>(`/notifications/${id}`, { method: "DELETE" }).then((d) => d.notifications)
 };

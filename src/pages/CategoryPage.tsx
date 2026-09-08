@@ -1,12 +1,11 @@
 import { Link, useParams } from "react-router-dom";
 import { ProductGrid } from "../components/ProductGrid";
 import { Badge, Button, SectionHeader } from "../components/ui";
-import { categories } from "../data/categories";
 import { useApp } from "../context/AppContext";
 
 export const CategoryPage = () => {
   const { categorySlug } = useParams();
-  const { products } = useApp();
+  const { products, categories } = useApp();
   const category = categories.find((item) => item.slug === categorySlug);
   const categoryProducts = category ? products.filter((product) => product.category === category.name) : [];
 

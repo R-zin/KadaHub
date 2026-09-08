@@ -1,14 +1,28 @@
 import type { Role, User } from "../types";
+import { api, clearToken, setToken } from "./api";
 
-export const demoAccounts: User[] = [
-  { id: "u-customer", name: "Maya Customer", email: "customer@demo.com", role: "customer" },
-  { id: "u-seller", name: "Sam Seller", email: "seller@demo.com", role: "seller" },
-  { id: "u-delivery", name: "Dev Delivery", email: "delivery@demo.com", role: "delivery" },
-  { id: "u-admin", name: "Anika Admin", email: "admin@demo.com", role: "admin" }
-];
+export interface AuthResult {
+  user: User;
+  token: string;
+}
 
 export const authService = {
-  loginAsRole: async (role: Role) => demoAccounts.find((account) => account.role === role) ?? demoAccounts[0],
-  register: async (name: string, email: string, role: Role): Promise<User> => ({ id: `u-${Date.now()}`, name, email, role }),
-  logout: async () => true
+  register: async (name: string, email: string, password: string, role: Role, storeName?: string): Promise<AuthResult> => {
+    const data = await api<AuthResult>("/auth/register", { method: "POST", body: { name, email, password, role, storeName }, auth: false });
+    setToken(data.token);
+    return data;
+  },
+  login: async (email: string, password: string): Promise<AuthResult> => {
+    const data = await api<AuthResult>("/auth/login", { method: "POST", body: { email, password }, auth: false });
+    setToken(data.token);
+    return data;
+  },
+  me: async (): Promise<User> => {
+    const data = await api<{ user: User }>("/auth/me");
+    return data.user;
+  },
+  logout: async () => {
+    clearToken();
+    return true;
+  }
 };

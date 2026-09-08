@@ -1,5 +1,5 @@
 import { Filter } from "lucide-react";
-import { categories } from "../data/categories";
+import { useApp } from "../context/AppContext";
 import type { Product, ProductFiltersState } from "../types";
 import { Button } from "./ui";
 
@@ -26,6 +26,7 @@ export const ProductFilters = ({
   products: Product[];
   compact?: boolean;
 }) => {
+  const { categories } = useApp();
   const brands = Array.from(new Set(products.map((product) => product.brand))).sort();
   const activeCategory = categories.find((category) => category.name === filters.category);
 

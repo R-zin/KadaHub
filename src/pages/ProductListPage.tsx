@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { ProductFilters, defaultFilters } from "../components/ProductFilters";
 import { ProductGrid } from "../components/ProductGrid";
 import { Button, Modal } from "../components/ui";
-import { productService } from "../services/productService";
+import { filterProducts } from "../services/productService";
 import { useApp } from "../context/AppContext";
 import type { ProductFiltersState } from "../types";
 
@@ -13,7 +13,7 @@ export const ProductListPage = () => {
   const [params] = useSearchParams();
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState<ProductFiltersState>({ ...defaultFilters, search: params.get("q") ?? "" });
-  const visible = useMemo(() => productService.filterProducts(products, filters), [products, filters]);
+  const visible = useMemo(() => filterProducts(products, filters), [products, filters]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">

@@ -1,7 +1,6 @@
 import { Bell, Heart, Menu, Package, Search, ShoppingCart, User, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { categories } from "../data/categories";
 import { productService } from "../services/productService";
 import { useApp } from "../context/AppContext";
 import { Badge, IconButton } from "../components/ui";
@@ -10,13 +9,21 @@ const navLink = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-semibold transition ${isActive ? "bg-primary-50 text-primary-700" : "text-slate-700 hover:bg-slate-100"}`;
 
 export const AppLayout = () => {
-  const { cart, wishlist, user, notifications, markNotificationsRead, dismissNotification } = useApp();
+  const { cart, wishlist, user, categories, notifications, markNotificationsRead, dismissNotification } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<{ id: string; label: string; meta: string }[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const navigate = useNavigate();
-  const suggestions = productService.getSuggestions(query);
+
+  useEffect(() => {
+    if (!query.trim()) return setSuggestions([]);
+    const t = setTimeout(() => {
+      productService.getSuggestions(query).then(setSuggestions).catch(() => setSuggestions([]));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
