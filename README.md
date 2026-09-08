@@ -1,4 +1,4 @@
-# KadaHub – E-Commerce Management System
+# KadaHub – E-Commerce Management System and AI
 
 KadaHub is a multi-category E-Commerce Management System that allows users to browse, search, and purchase products across categories such as Electronics, Clothing, Home & Living, Beauty, Sports, Books, and more.
 
