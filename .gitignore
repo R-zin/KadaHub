@@ -1,0 +1,7 @@
+.superdesign/tmp/
+node_modules/
+dist/
+.env
+server/uploads/
+*.log
+*.tsbuildinfo
