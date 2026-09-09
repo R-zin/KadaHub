@@ -64,17 +64,27 @@ Edit `server/.env`:
   The pooler/“Session” URI works well. TLS is enabled automatically for Supabase hosts.
 - `JWT_SECRET` → a long random string.
 
-Then create the schema and load sample data:
-
-```bash
-npm run migrate   # applies server/src/db/schema.sql
-npm run seed      # one user per role + 8 categories + 55 products + 2 sample orders
-```
-
-Start the API:
+Start the API — it creates the schema automatically on boot, and on a fresh/empty
+database also loads the sample data:
 
 ```bash
 npm run dev       # http://localhost:4000  (health: /api/health)
+```
+
+On startup the server applies `server/src/db/schema.sql` (idempotent, safe on an
+existing Supabase project) and seeds one user per role + 8 categories + 55 products
++ 2 sample orders **only if the `users` table is empty**. Control it with:
+
+| Variable        | Effect                                                        |
+|-----------------|---------------------------------------------------------------|
+| `SEED_ON_INIT`  | `true` = always seed on boot · `false` = schema only          |
+| `DB_INIT`       | `false` = skip all DB initialization at startup               |
+
+You can also run the steps manually (useful for CI or a reset):
+
+```bash
+npm run migrate   # applies server/src/db/schema.sql
+npm run seed      # truncates + reloads the demo data
 ```
 
 ### Demo logins (password `password123`)

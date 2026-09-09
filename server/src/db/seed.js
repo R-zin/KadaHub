@@ -102,9 +102,9 @@ const PRODUCTS = [
   P('Reusable Gift Wrap Kit', 21, null, 'Toys & More', 'General Products', 'WrapWell', 45, 'photo-1512909006721-3d6018887383', false, {}, 4.2, 65, 'gift wrap', { Count: '6', Material: 'Cotton' }, ['gift'])
 ];
 
-const run = async () => {
+const run = async (client) => {
   console.log('Seeding database...');
-  await withTransaction(async (client) => {
+  {
     // Clear domain tables (dev reset) in FK-safe order.
     await client.query(`
       TRUNCATE notifications, tryon_results, returns, deliveries, payments,
@@ -185,7 +185,7 @@ const run = async () => {
     });
 
     console.log(`Seeded: ${USERS.length} users, ${CATEGORIES.length} categories, ${PRODUCTS.length} products, 2 orders.`);
-  });
+  }
 };
 
 // Map a seeded product to a seller storefront (matches the mock sellerName data).
@@ -247,6 +247,14 @@ const seedOrder = async (client, { customerId, deliveryId, orderNumber, status, 
   );
 };
 
-run()
-  .catch((err) => { console.error('Seed failed:', err); process.exitCode = 1; })
-  .finally(() => pool.end());
+/** Run the seed inside one transaction (rolls back fully on error). */
+const seedDatabase = () => withTransaction(run);
+
+module.exports = { seedDatabase };
+
+// CLI: `npm run seed`
+if (require.main === module) {
+  seedDatabase()
+    .catch((err) => { console.error('Seed failed:', err); process.exitCode = 1; })
+    .finally(() => pool.end());
+}

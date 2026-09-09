@@ -19,9 +19,8 @@ npm install
 cp .env.example .env
 # Edit .env: set DATABASE_URL and JWT_SECRET (see below)
 
-npm run migrate   # create tables
-npm run seed      # demo users, categories, products, orders
 npm run dev       # API on http://localhost:4000
+                  # (creates the schema on boot; seeds demo data if the DB is empty)
 
 # --- Frontend (new terminal, repo root) ---
 npm install
