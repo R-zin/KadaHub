@@ -1,9 +1,9 @@
 const express = require('express');
 const notificationDomain = require('../services/notificationDomain');
 const { authenticate } = require('../middleware/auth');
+const asyncH = require('../utils/asyncHandler');
 
 const router = express.Router();
-const asyncH = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 router.use(authenticate);
 

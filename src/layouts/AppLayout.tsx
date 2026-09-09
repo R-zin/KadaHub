@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { productService } from "../services/productService";
 import { useApp } from "../context/AppContext";
-import { Badge, IconButton } from "../components/ui";
+import { Badge, IconButton, LoadingState } from "../components/ui";
 
 const navLink = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-semibold transition ${isActive ? "bg-primary-50 text-primary-700" : "text-slate-700 hover:bg-slate-100"}`;
@@ -187,7 +187,14 @@ export const AppLayout = () => {
 };
 
 export const ProtectedRoute = ({ roles, children }: { roles: string[]; children: React.ReactNode }) => {
-  const { user } = useApp();
+  const { user, authLoading } = useApp();
+  if (authLoading) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-20">
+        <LoadingState label="Verifying session..." />
+      </div>
+    );
+  }
   if (!user) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-20 text-center">

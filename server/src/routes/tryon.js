@@ -2,9 +2,9 @@ const express = require('express');
 const tryOnDomain = require('../services/tryOnDomain');
 const { authenticate } = require('../middleware/auth');
 const validate = require('../middleware/validate');
+const asyncH = require('../utils/asyncHandler');
 
 const router = express.Router();
-const asyncH = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 router.use(authenticate);
 

@@ -3,7 +3,7 @@
  * Handles the base URL, JSON, auth token, and the sliding-session refresh token.
  */
 
-const BASE_URL = (import.meta as any).env?.VITE_API_URL || "http://localhost:4000/api";
+export const BASE_URL: string = (import.meta as any).env?.VITE_API_URL || "http://localhost:4000/api";
 const TOKEN_KEY = "kadahub_token";
 
 export const getToken = (): string | null => {
