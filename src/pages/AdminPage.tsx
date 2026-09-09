@@ -6,7 +6,7 @@ import { DashboardLayout } from "../layouts/DashboardLayout";
 import { useApp } from "../context/AppContext";
 import { adminService, type AdminStats, type AdminUser, type Transaction } from "../services/adminService";
 import { returnService } from "../services/returnService";
-import { formatCurrency, compactDate } from "../utils/format";
+import { formatCurrency } from "../utils/format";
 
 const navItems = [
   { label: "Dashboard", to: "/admin", icon: Shield },
@@ -201,6 +201,3 @@ const Bar = ({ label, value }: { label: string; value: number }) => (
     <div className="mt-1 h-2 rounded bg-slate-100"><div className="h-2 rounded bg-primary-600" style={{ width: `${Math.min(value * 5, 100)}%` }} /></div>
   </div>
 );
-
-// compactDate imported for potential future use in tables
-void compactDate;

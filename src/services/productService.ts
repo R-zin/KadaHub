@@ -1,6 +1,5 @@
 import type { Product, ProductFiltersState } from "../types";
 import { api } from "./api";
-import { slugify } from "../utils/format";
 
 export interface ProductQuery {
   search?: string;
@@ -27,14 +26,12 @@ const toQuery = (q: ProductQuery) => {
 export const productService = {
   getProducts: (query: ProductQuery = {}) => api<{ products: Product[] }>(`/products${toQuery(query)}`).then((d) => d.products),
   getProductById: (id: string) => api<{ product: Product }>(`/products/${id}`).then((d) => d.product),
-  searchProducts: (search: string) => productService.getProducts({ search }),
   getSuggestions: (query: string) =>
     api<{ suggestions: { id: string; label: string; meta: string }[] }>(`/products/suggestions?q=${encodeURIComponent(query)}`).then((d) => d.suggestions),
   addProduct: (product: Partial<Product>) => api<{ product: Product }>("/products", { method: "POST", body: product }).then((d) => d.product),
   updateProduct: (id: string, patch: Partial<Product>) => api<{ product: Product }>(`/products/${id}`, { method: "PUT", body: patch }).then((d) => d.product),
   updateStock: (id: string, stock: number) => api<{ product: Product }>(`/products/${id}/stock`, { method: "PATCH", body: { stock } }).then((d) => d.product),
-  deleteProduct: (id: string) => api(`/products/${id}`, { method: "DELETE" }),
-  categorySlugForProduct: (product: Product) => slugify(product.category)
+  deleteProduct: (id: string) => api(`/products/${id}`, { method: "DELETE" })
 };
 
 /** Client-side filtering/sorting kept for the ProductListPage filter UI. */

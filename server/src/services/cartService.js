@@ -1,19 +1,10 @@
 const ApiError = require('../utils/ApiError');
 const { query } = require('../db');
+const { toProduct } = require('./productService');
 
 const toCartItem = (row) => ({
   quantity: row.quantity,
-  product: {
-    id: String(row.id), name: row.name, description: row.description || '',
-    price: Number(row.price), originalPrice: row.original_price != null ? Number(row.original_price) : undefined,
-    discount: row.discount != null ? Number(row.discount) : undefined,
-    category: row.category_name, subcategory: row.subcategory || '', brand: row.brand || '',
-    images: row.images || [], rating: Number(row.rating || 0), reviewCount: Number(row.review_count || 0),
-    stock: Number(row.stock), sellerId: String(row.seller_id), sellerName: row.seller_name || '',
-    specifications: row.specifications || {}, tags: row.tags || [],
-    isFeatured: !!row.is_featured, isNew: !!row.is_new, isBestSeller: !!row.is_best_seller,
-    isVirtualTryOnSupported: !!row.is_virtual_try_on_supported, productType: row.product_type || ''
-  }
+  product: toProduct(row)
 });
 
 const CART_SELECT = `

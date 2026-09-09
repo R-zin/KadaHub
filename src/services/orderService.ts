@@ -10,6 +10,5 @@ export const orderService = {
     api<{ order: Order }>("/orders/checkout", { method: "POST", body: { address, payment } }).then((d) => d.order),
   getOrders: () => api<{ orders: Order[] }>("/orders").then((d) => d.orders),
   getOrder: (id: string) => api<{ order: Order }>(`/orders/${id}`).then((d) => d.order),
-  advanceStatus: (id: string) => api<{ order: Order }>(`/orders/${id}/advance`, { method: "POST" }).then((d) => d.order),
-  nextStatus: (status: OrderStatus) => orderTimeline[Math.min(orderTimeline.indexOf(status) + 1, orderTimeline.length - 1)]
+  advanceStatus: (id: string) => api<{ order: Order }>(`/orders/${id}/advance`, { method: "POST" }).then((d) => d.order)
 };

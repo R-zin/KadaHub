@@ -1,9 +1,7 @@
-const crypto = require('crypto');
 const ApiError = require('../utils/ApiError');
 const { query, withTransaction } = require('../db');
 const paymentService = require('./paymentService');
 const { notify } = require('./notificationService');
-const { toProduct } = require('./productService');
 
 const ORDER_TIMELINE = ['Order Placed', 'Payment Confirmed', 'Processing', 'Dispatched', 'Shipped', 'Out for Delivery', 'Delivered'];
 

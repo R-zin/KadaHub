@@ -1,10 +1,9 @@
 const express = require('express');
 const productService = require('../services/productService');
 const { authenticate, authorize } = require('../middleware/auth');
+const asyncH = require('../utils/asyncHandler');
 
 const router = express.Router();
-
-const asyncH = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // Public catalog
 router.get('/', asyncH(async (req, res) => {
