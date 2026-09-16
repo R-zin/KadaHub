@@ -16,15 +16,21 @@ const publicUser = (row) => ({
 
 /** Register a new account. Seller accounts may supply a storefront name. */
 const register = async ({ name, email, password, role = 'customer', storeName, phone }) => {
+  const allowedRoles = ['customer', 'seller'];
+  if (!allowedRoles.includes(role)) {
+    throw ApiError.badRequest('Public registration is restricted to customer and seller accounts');
+  }
+
   const existing = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
   if (existing.rows.length) throw ApiError.conflict('An account with this email already exists');
 
   const hash = await bcrypt.hash(password, config.bcryptRounds);
+  const effectiveStoreName = role === 'seller' ? (storeName?.trim() || `${name}'s Store`) : null;
   const { rows } = await query(
     `INSERT INTO users (name, email, password_hash, role, store_name, phone)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, name, email, role, store_name, phone`,
-    [name, email.toLowerCase(), hash, role, storeName || null, phone || null]
+    [name, email.toLowerCase(), hash, role, effectiveStoreName, phone || null]
   );
   const user = publicUser(rows[0]);
   await notify(rows[0].id, `Welcome to KadaHub, ${name}! Your ${role} account is ready.`);

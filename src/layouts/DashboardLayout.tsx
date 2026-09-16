@@ -7,7 +7,7 @@ export const DashboardLayout = ({
   children
 }: {
   title: string;
-  navItems: { label: string; to: string; icon: LucideIcon }[];
+  navItems: { label: string; to: string; icon: LucideIcon; end?: boolean }[];
   children: React.ReactNode;
 }) => (
   <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 lg:grid-cols-[240px_1fr]">
@@ -15,11 +15,11 @@ export const DashboardLayout = ({
       <Link to="/" className="text-sm font-semibold text-primary-700">Back to marketplace</Link>
       <h1 className="mt-4 text-xl font-bold text-slate-950">{title}</h1>
       <nav className="mt-5 grid gap-1">
-        {navItems.map(({ label, to, icon: Icon }) => (
+        {navItems.map(({ label, to, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
-            end={to.split("/").length <= 2}
+            end={end ?? (to.split("/").length <= 2)}
             className={({ isActive }) => `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold ${isActive ? "bg-primary-50 text-primary-700" : "text-slate-700 hover:bg-slate-100"}`}
           >
             <Icon className="h-4 w-4" /> {label}

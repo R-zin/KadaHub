@@ -9,7 +9,7 @@ import { useApp } from "../context/AppContext";
 import type { ProductFiltersState } from "../types";
 
 export const ProductListPage = () => {
-  const { products } = useApp();
+  const { products, productsLoading } = useApp();
   const [params] = useSearchParams();
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState<ProductFiltersState>({ ...defaultFilters, search: params.get("q") ?? "" });
@@ -36,7 +36,7 @@ export const ProductListPage = () => {
       </div>
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <div className="hidden lg:block"><ProductFilters filters={filters} setFilters={setFilters} products={products} /></div>
-        <ProductGrid products={visible} />
+        <ProductGrid products={visible} loading={productsLoading} />
       </div>
       {filterOpen && <Modal title="Filters" onClose={() => setFilterOpen(false)}><ProductFilters compact filters={filters} setFilters={setFilters} products={products} /></Modal>}
     </div>

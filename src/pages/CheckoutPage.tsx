@@ -24,15 +24,37 @@ export const CheckoutPage = () => {
     return <div className="mx-auto max-w-5xl px-4 py-10"><EmptyState title="Nothing to checkout" message="Add products from any category to create a mock order." action={<Link to="/products"><Button>Shop Products</Button></Link>} /></div>;
   }
 
+  const validateAddress = (addr: Address): string | null => {
+    if (!addr.name?.trim()) return "Recipient name is required.";
+    if (!addr.line1?.trim()) return "Street address line 1 is required.";
+    if (!addr.city?.trim()) return "City is required.";
+    if (!addr.postalCode?.trim()) return "Postal code is required.";
+    return null;
+  };
+
+  const handleNextStep = () => {
+    if (step === 0) {
+      const err = validateAddress(address);
+      if (err) {
+        setError(err);
+        return;
+      }
+    }
+    setError("");
+    setStep(step + 1);
+  };
+
   const placeOrder = async () => {
+    if (processing) return;
     try {
       setProcessing(true);
       setError("");
       const order = await checkout(address);
       setOrderNumber(order.orderNumber);
       setStep(4);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Payment failed. Please try again.");
+    } catch (err: any) {
+      const msg = err?.response?.data?.error?.message || err?.response?.data?.error || (err instanceof Error ? err.message : "Payment failed. Your cart and inventory have not been changed.");
+      setError(msg);
     } finally {
       setProcessing(false);
     }
@@ -48,13 +70,21 @@ export const CheckoutPage = () => {
               <div key={label} className={`rounded-md px-3 py-2 text-center text-sm font-semibold ${index <= step ? "bg-primary-50 text-primary-700" : "bg-slate-100 text-slate-500"}`}>{label}</div>
             ))}
           </div>
-          {error && <ErrorState message={error} />}
+          {error && <div className="mb-4"><ErrorState message={error} /></div>}
           {step === 0 && (
             <div className="grid gap-4 sm:grid-cols-2">
               {Object.entries(address).map(([key, value]) => (
                 <label key={key} className="block text-sm font-medium capitalize text-slate-700">
-                  {key}
-                  <input className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2" value={value} onChange={(event) => setAddress({ ...address, [key]: event.target.value })} />
+                  {key.replace(/([A-Z])/g, " $1")}
+                  <input
+                    required
+                    className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+                    value={value}
+                    onChange={(event) => {
+                      setError("");
+                      setAddress({ ...address, [key]: event.target.value });
+                    }}
+                  />
                 </label>
               ))}
             </div>
@@ -72,8 +102,8 @@ export const CheckoutPage = () => {
           )}
           {step < 4 && (
             <div className="mt-6 flex justify-between">
-              <Button variant="secondary" disabled={step === 0} onClick={() => setStep(step - 1)}>Back</Button>
-              {step < 3 ? <Button onClick={() => setStep(step + 1)}>Continue</Button> : <Button disabled={processing} onClick={placeOrder}>{processing ? "Processing..." : "Pay and Place Order"}</Button>}
+              <Button variant="secondary" disabled={step === 0} onClick={() => { setError(""); setStep(step - 1); }}>Back</Button>
+              {step < 3 ? <Button onClick={handleNextStep}>Continue</Button> : <Button disabled={processing} onClick={placeOrder}>{processing ? "Processing..." : "Pay and Place Order"}</Button>}
             </div>
           )}
         </section>

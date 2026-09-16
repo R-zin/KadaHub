@@ -53,8 +53,12 @@ const list = async (opts = {}) => {
       OR p.brand ILIKE '%' || $${i} || '%' OR p.subcategory ILIKE '%' || $${i} || '%'
       OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(p.tags, '[]'::jsonb)) t WHERE t ILIKE '%' || $${i} || '%'))`);
   }
-  if (opts.category) add('c.slug = $$', opts.category);
-  if (opts.subcategory) add('p.subcategory = $$', opts.subcategory);
+  if (opts.category) {
+    params.push(opts.category);
+    const i = params.length;
+    where.push(`(c.slug = LOWER($${i}) OR c.name ILIKE $${i})`);
+  }
+  if (opts.subcategory) add('p.subcategory ILIKE $$', opts.subcategory);
   if (opts.brand) add('p.brand = $$', opts.brand);
   if (opts.minPrice != null) add('p.price >= $$', Number(opts.minPrice));
   if (opts.maxPrice != null) add('p.price <= $$', Number(opts.maxPrice));
@@ -90,7 +94,25 @@ const getById = async (id) => {
 
 /** Create a product (seller). Only Clothing may be flagged try-on. */
 const create = async (sellerId, data) => {
+  if (!data.name || typeof data.name !== 'string' || !data.name.trim()) {
+    throw ApiError.badRequest('Product name is required');
+  }
+  if (data.price == null || isNaN(Number(data.price)) || Number(data.price) < 0) {
+    throw ApiError.badRequest('Valid price (>= 0) is required');
+  }
+  const stock = Number(data.stock || 0);
+  if (isNaN(stock) || !Number.isInteger(stock) || stock < 0) {
+    throw ApiError.badRequest('Stock must be a non-negative integer');
+  }
+  const discount = data.discount != null ? Number(data.discount) : 0;
+  if (isNaN(discount) || discount < 0 || discount > 100) {
+    throw ApiError.badRequest('Discount must be between 0 and 100');
+  }
+
   const cat = await categoryByNameOrSlug(data.category);
+  const canonicalSubcategory = data.subcategory
+    ? await validateSubcategory(cat.id, cat.name, data.subcategory)
+    : null;
   const isTryOn = cat.name === 'Clothing' && !!data.isVirtualTryOnSupported;
 
   const { rows } = await query(
@@ -101,11 +123,11 @@ const create = async (sellerId, data) => {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING id`,
     [
-      sellerId, cat.id, data.subcategory || null, data.name, data.description || '',
+      sellerId, cat.id, canonicalSubcategory, data.name.trim(), data.description || '',
       Number(data.price), data.originalPrice != null ? Number(data.originalPrice) : null,
-      data.discount != null ? Number(data.discount) : 0, data.brand || null,
-      Number(data.stock || 0), JSON.stringify(data.specifications || {}),
-      JSON.stringify(data.tags || []), !!data.isFeatured, !!data.isNew, !!data.isBestSeller,
+      discount, data.brand || null,
+      stock, JSON.stringify(data.specifications || {}),
+      JSON.stringify(Array.isArray(data.tags) ? data.tags : []), !!data.isFeatured, !!data.isNew, !!data.isBestSeller,
       isTryOn, data.productType || null
     ]
   );
@@ -120,15 +142,46 @@ const update = async (id, data, actor) => {
   if (actor.role !== 'admin' && existing.seller_id !== actor.id) {
     throw ApiError.forbidden('You can only edit your own products');
   }
-  const categoryName = data.category
-    ? (await categoryByNameOrSlug(data.category)).name
-    : existing.category_name;
+
+  if (data.name !== undefined && (!data.name || typeof data.name !== 'string' || !data.name.trim())) {
+    throw ApiError.badRequest('Product name cannot be empty');
+  }
+  if (data.price !== undefined && (isNaN(Number(data.price)) || Number(data.price) < 0)) {
+    throw ApiError.badRequest('Valid price (>= 0) is required');
+  }
+  if (data.stock !== undefined) {
+    const stock = Number(data.stock);
+    if (isNaN(stock) || !Number.isInteger(stock) || stock < 0) {
+      throw ApiError.badRequest('Stock must be a non-negative integer');
+    }
+  }
+  if (data.discount !== undefined) {
+    const discount = Number(data.discount);
+    if (isNaN(discount) || discount < 0 || discount > 100) {
+      throw ApiError.badRequest('Discount must be between 0 and 100');
+    }
+  }
+
+  const cat = data.category
+    ? await categoryByNameOrSlug(data.category)
+    : { id: existing.category_id, name: existing.category_name };
+
+  let canonicalSubcategory = undefined;
+  if (data.subcategory !== undefined) {
+    canonicalSubcategory = data.subcategory
+      ? await validateSubcategory(cat.id, cat.name, data.subcategory)
+      : null;
+  } else if (data.category && existing.subcategory) {
+    canonicalSubcategory = await validateSubcategory(cat.id, cat.name, existing.subcategory);
+  }
+
+  const categoryName = cat.name;
   const isTryOn = categoryName === 'Clothing' &&
     (data.isVirtualTryOnSupported !== undefined ? !!data.isVirtualTryOnSupported : existing.is_virtual_try_on_supported);
 
   const fields = {
-    subcategory: data.subcategory,
-    name: data.name,
+    subcategory: canonicalSubcategory,
+    name: data.name ? data.name.trim() : undefined,
     description: data.description,
     price: data.price != null ? Number(data.price) : undefined,
     original_price: data.originalPrice != null ? Number(data.originalPrice) : undefined,
@@ -149,7 +202,7 @@ const update = async (id, data, actor) => {
     if (val !== undefined) { params.push(val); sets.push(`${col} = $${params.length}`); }
   }
   if (data.category) {
-    params.push((await categoryByNameOrSlug(data.category)).id);
+    params.push(cat.id);
     sets.push(`category_id = $${params.length}`);
   }
   if (sets.length) {
@@ -165,16 +218,27 @@ const remove = async (id, actor) => {
   if (actor.role !== 'admin' && existing.seller_id !== actor.id) {
     throw ApiError.forbidden('You can only delete your own products');
   }
+  const { rows: orderRefs } = await query(
+    'SELECT 1 FROM order_items WHERE product_id = $1 UNION SELECT 1 FROM returns WHERE product_id = $1 LIMIT 1',
+    [Number(id)]
+  );
+  if (orderRefs.length > 0) {
+    throw ApiError.badRequest('Cannot delete a product with existing order history. Please set its stock to 0 to delist it.');
+  }
   await query('DELETE FROM products WHERE id = $1', [Number(id)]);
 };
 
 /** Update just the stock level (seller inventory management). */
 const setStock = async (id, stock, actor) => {
+  const parsedStock = Number(stock);
+  if (isNaN(parsedStock) || !Number.isInteger(parsedStock) || parsedStock < 0) {
+    throw ApiError.badRequest('Stock must be a non-negative integer');
+  }
   const existing = await rawById(id);
   if (actor.role !== 'admin' && existing.seller_id !== actor.id) {
     throw ApiError.forbidden('You can only manage your own inventory');
   }
-  await query('UPDATE products SET stock = $1, updated_at = now() WHERE id = $2', [Number(stock), Number(id)]);
+  await query('UPDATE products SET stock = $1, updated_at = now() WHERE id = $2', [parsedStock, Number(id)]);
   return getById(id);
 };
 
@@ -187,9 +251,28 @@ const rawById = async (id) => {
 };
 
 const categoryByNameOrSlug = async (nameOrSlug) => {
-  const { rows } = await query('SELECT * FROM categories WHERE slug = $1 OR name = $1', [nameOrSlug]);
+  if (!nameOrSlug || typeof nameOrSlug !== 'string' || !nameOrSlug.trim()) {
+    throw ApiError.badRequest('Category is required');
+  }
+  const { rows } = await query(
+    'SELECT * FROM categories WHERE LOWER(slug) = LOWER($1) OR LOWER(name) = LOWER($1)',
+    [nameOrSlug.trim()]
+  );
   if (!rows.length) throw ApiError.badRequest(`Unknown category: ${nameOrSlug}`);
   return rows[0];
+};
+
+const validateSubcategory = async (categoryId, categoryName, subcategory) => {
+  if (!subcategory || typeof subcategory !== 'string' || !subcategory.trim()) return null;
+  const trimmed = subcategory.trim();
+  const { rows } = await query(
+    'SELECT name FROM category_subcategories WHERE category_id = $1 AND (LOWER(name) = LOWER($2) OR name ILIKE $2)',
+    [categoryId, trimmed]
+  );
+  if (!rows.length) {
+    throw ApiError.badRequest(`Subcategory "${trimmed}" is not valid for category "${categoryName}"`);
+  }
+  return rows[0].name;
 };
 
 const saveImages = async (productId, images, replace = false) => {

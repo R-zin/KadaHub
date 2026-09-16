@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { authService } from "../services/authService";
 import { cartService } from "../services/cartService";
 import { categoryService } from "../services/categoryService";
@@ -35,9 +36,11 @@ interface AppContextValue {
   checkout: (address: Address) => Promise<Order>;
   refreshOrders: () => Promise<void>;
   advanceOrderStatus: (orderId: string) => Promise<void>;
+  claimDeliveryOrder: (orderId: string) => Promise<void>;
   addReturnRequest: (orderId: string, productId: string, reason: string) => Promise<void>;
   refreshReturns: () => Promise<void>;
   addProduct: (product: Partial<Product>) => Promise<Product>;
+  updateProduct: (id: string, patch: Partial<Product>) => Promise<Product>;
   updateProductStock: (productId: string, stock: number) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
   saveTryOn: (result: TryOnResult) => void;
@@ -50,6 +53,7 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
@@ -113,13 +117,6 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     })();
   }, [refreshProducts, loadPrivate]);
 
-  // Force logout when the session expires (broadcast by the API client on 401).
-  useEffect(() => {
-    const onExpired = () => { setUser(null); setCart([]); setWishlist([]); setOrders([]); setReturns([]); setNotifications([]); setSavedTryOns([]); };
-    window.addEventListener("kadahub:session-expired", onExpired);
-    return () => window.removeEventListener("kadahub:session-expired", onExpired);
-  }, []);
-
   // ---- auth ---------------------------------------------------------------
   const login = useCallback(async (email: string, password: string) => {
     const { user } = await authService.login(email, password);
@@ -141,6 +138,74 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     setUser(null);
     setCart([]); setWishlist([]); setOrders([]); setReturns([]); setNotifications([]); setSavedTryOns([]);
   }, []);
+
+  // Force logout when the session expires (broadcast by the API client on 401).
+  useEffect(() => {
+    const onExpired = () => {
+      logout();
+      navigate("/login?expired=inactivity");
+    };
+    window.addEventListener("kadahub:session-expired", onExpired);
+    return () => window.removeEventListener("kadahub:session-expired", onExpired);
+  }, [logout, navigate]);
+
+  // 15-minute inactivity auto-logout tracking
+  useEffect(() => {
+    if (!user) return;
+
+    const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let lastActivityTime = Date.now();
+
+    const triggerInactivityLogout = () => {
+      logout();
+      navigate("/login?expired=inactivity");
+    };
+
+    const resetTimer = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(triggerInactivityLogout, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const handleActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityTime >= INACTIVITY_TIMEOUT_MS) {
+        triggerInactivityLogout();
+        return;
+      }
+      if (now - lastActivityTime > 1000) {
+        lastActivityTime = now;
+        resetTimer();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        const now = Date.now();
+        if (now - lastActivityTime >= INACTIVITY_TIMEOUT_MS) {
+          triggerInactivityLogout();
+        } else {
+          resetTimer();
+        }
+      }
+    };
+
+    resetTimer();
+
+    const activityEvents = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleActivity, { passive: true });
+    });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearTimeout(timeoutId);
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleActivity);
+      });
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [user, logout, navigate]);
 
   // ---- cart ---------------------------------------------------------------
   const addToCart = useCallback(async (product: Product, quantity = 1) => {
@@ -170,6 +235,11 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     await refreshOrders();
   }, [refreshOrders]);
 
+  const claimDeliveryOrder = useCallback(async (orderId: string) => {
+    await orderService.claimOrder(orderId);
+    await refreshOrders();
+  }, [refreshOrders]);
+
   // ---- returns ---------------------------------------------------------------
   const addReturnRequest = useCallback(async (orderId: string, productId: string, reason: string) => {
     await returnService.request(orderId, productId, reason);
@@ -182,6 +252,11 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     await refreshProducts();
     return created;
   }, [refreshProducts]);
+  const updateProduct = useCallback(async (id: string, patch: Partial<Product>) => {
+    const updated = await productService.updateProduct(id, patch);
+    await refreshProducts();
+    return updated;
+  }, [refreshProducts]);
   const updateProductStock = useCallback(async (productId: string, stock: number) => {
     await productService.updateStock(productId, stock);
     await refreshProducts();
@@ -191,11 +266,13 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     await refreshProducts();
   }, [refreshProducts]);
 
-  // ---- try-on ------------------------------------------------------------------
-  const saveTryOn = useCallback((result: TryOnResult) => setSavedTryOns((items) => [result, ...items]), []);
+  // ---- try-on -----------------------------------------------------------------
+  const saveTryOn = useCallback((result: TryOnResult) => {
+    setSavedTryOns((prev) => [result, ...prev]);
+  }, []);
   const generateTryOn = useCallback(async (product: Product, sourceImage: string, size: string, color: string) => {
     const result = await tryOnService.generatePreview(product.id, sourceImage, size, color);
-    setSavedTryOns((items) => [result, ...items]);
+    setSavedTryOns((prev) => [result, ...prev]);
     return result;
   }, []);
 
@@ -210,11 +287,11 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const value = useMemo<AppContextValue>(() => ({
     user, authLoading, products, productsLoading, categories, cart, wishlist, orders, returns, notifications, savedTryOns,
     login, register, logout, refreshProducts, addToCart, updateCartQuantity, removeFromCart, clearCart, toggleWishlist,
-    checkout, refreshOrders, advanceOrderStatus, addReturnRequest, refreshReturns, addProduct,
+    checkout, refreshOrders, advanceOrderStatus, claimDeliveryOrder, addReturnRequest, refreshReturns, addProduct, updateProduct,
     updateProductStock, deleteProduct, saveTryOn, generateTryOn, refreshNotifications, markNotificationsRead, dismissNotification
   }), [user, authLoading, products, productsLoading, categories, cart, wishlist, orders, returns, notifications, savedTryOns,
     login, register, logout, refreshProducts, addToCart, updateCartQuantity, removeFromCart, clearCart, toggleWishlist,
-    checkout, refreshOrders, advanceOrderStatus, addReturnRequest, refreshReturns, addProduct,
+    checkout, refreshOrders, advanceOrderStatus, claimDeliveryOrder, addReturnRequest, refreshReturns, addProduct, updateProduct,
     updateProductStock, deleteProduct, saveTryOn, generateTryOn, refreshNotifications, markNotificationsRead, dismissNotification]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

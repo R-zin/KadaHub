@@ -2,17 +2,65 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { OrderTimeline } from "../components/OrderTimeline";
 import { StatusBadge } from "../components/StatusBadge";
-import { Button, EmptyState } from "../components/ui";
+import { Button, EmptyState, ErrorState } from "../components/ui";
 import { useApp } from "../context/AppContext";
 import { compactDate, formatCurrency } from "../utils/format";
 
 export const OrderDetailPage = () => {
   const { orderId } = useParams();
-  const { orders, returns, addReturnRequest } = useApp();
+  const { orders, returns, addReturnRequest, authLoading } = useApp();
   const [reason, setReason] = useState("Size or fit issue");
+  const [requestingProductId, setRequestingProductId] = useState<string | null>(null);
+  const [returnError, setReturnError] = useState("");
+  const [returnSuccess, setReturnSuccess] = useState("");
+
+  if (authLoading) {
+    return (
+      <div className="mx-auto max-w-6xl px-4 py-8 animate-pulse">
+        <div className="h-4 w-28 rounded bg-slate-200" />
+        <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_320px]">
+          <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+            <div className="h-8 w-48 rounded bg-slate-200" />
+            <div className="h-4 w-36 rounded bg-slate-200" />
+            <div className="h-24 rounded bg-slate-100 mt-6" />
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+            <div className="h-6 w-24 rounded bg-slate-200" />
+            <div className="h-32 rounded bg-slate-100" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const order = orders.find((item) => item.id === orderId);
 
-  if (!order) return <div className="mx-auto max-w-5xl px-4 py-10"><EmptyState title="Order not found" message="The requested order could not be loaded." /></div>;
+  if (!order) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-10">
+        <EmptyState title="Order not found" message="The requested order could not be loaded." />
+        <div className="mt-4 text-center">
+          <Link to="/orders" className="text-sm font-semibold text-primary-700 hover:underline">
+            ← Return to your orders
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const handleRequestReturn = async (productId: string) => {
+    try {
+      setRequestingProductId(productId);
+      setReturnError("");
+      setReturnSuccess("");
+      await addReturnRequest(order.id, productId, reason);
+      setReturnSuccess("Return request submitted successfully. Our team will review it shortly.");
+    } catch (err: any) {
+      setReturnError(err?.response?.data?.error?.message || err?.response?.data?.error || (err instanceof Error ? err.message : "Failed to submit return request."));
+    } finally {
+      setRequestingProductId(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -25,14 +73,50 @@ export const OrderDetailPage = () => {
             <StatusBadge status={order.paymentStatus} />
           </div>
           <p className="mt-2 text-slate-500">{compactDate(order.date)} · {formatCurrency(order.total)}</p>
+
+          {returnSuccess && (
+            <div className="mt-4 flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              <span>{returnSuccess}</span>
+              <button type="button" onClick={() => setReturnSuccess("")} className="ml-2 font-bold text-emerald-700 hover:text-emerald-900">✕</button>
+            </div>
+          )}
+
+          {returnError && <div className="mt-4"><ErrorState message={returnError} /></div>}
+
           <div className="mt-6 divide-y divide-slate-100">
-            {order.items.map((item) => (
-              <div key={item.product.id} className="grid gap-4 py-4 sm:grid-cols-[80px_1fr_auto]">
-                <img src={item.product.images[0]} alt={item.product.name} className="h-20 w-20 rounded-md object-cover" />
-                <div><h2 className="font-semibold">{item.product.name}</h2><p className="text-sm text-slate-500">{item.product.category} · Qty {item.quantity}</p></div>
-                {order.status === "Delivered" && <Button variant="secondary" onClick={() => addReturnRequest(order.id, item.product.id, reason)}>Request Return</Button>}
-              </div>
-            ))}
+            {order.items.map((item) => {
+              const activeReturn = returns.find(
+                (r) => r.orderId === order.id && r.productId === item.product.id && r.status !== "Rejected"
+              );
+
+              return (
+                <div key={item.product.id} className="grid gap-4 py-4 sm:grid-cols-[80px_1fr_auto] items-center">
+                  <img src={item.product.images[0]} alt={item.product.name} className="h-20 w-20 rounded-md object-cover" />
+                  <div>
+                    <h2 className="font-semibold">{item.product.name}</h2>
+                    <p className="text-sm text-slate-500">{item.product.category} · Qty {item.quantity}</p>
+                  </div>
+                  {order.status === "Delivered" && (
+                    <div>
+                      {activeReturn ? (
+                        <div className="text-right">
+                          <span className="block text-xs font-medium text-slate-500 mb-1">Return Status:</span>
+                          <StatusBadge status={activeReturn.status} />
+                        </div>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          disabled={requestingProductId === item.product.id}
+                          onClick={() => handleRequestReturn(item.product.id)}
+                        >
+                          {requestingProductId === item.product.id ? "Submitting..." : "Request Return"}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="mt-6 rounded-lg bg-slate-50 p-4">
             <label className="text-sm font-semibold">Return reason</label>
@@ -42,7 +126,16 @@ export const OrderDetailPage = () => {
           </div>
           <h2 className="mt-6 font-bold">Return Requests</h2>
           <div className="mt-3 grid gap-2">
-            {returns.filter((item) => item.orderId === order.id).map((item) => <div key={item.id} className="flex justify-between rounded-md bg-slate-50 p-3 text-sm"><span>{item.reason}</span><StatusBadge status={item.status} /></div>)}
+            {returns.filter((item) => item.orderId === order.id).length === 0 ? (
+              <p className="text-sm text-slate-500">No returns requested for this order.</p>
+            ) : (
+              returns.filter((item) => item.orderId === order.id).map((item) => (
+                <div key={item.id} className="flex justify-between items-center rounded-md bg-slate-50 p-3 text-sm">
+                  <span>{item.productName || item.reason} ({item.reason})</span>
+                  <StatusBadge status={item.status} />
+                </div>
+              ))
+            )}
           </div>
         </section>
         <aside className="space-y-4">

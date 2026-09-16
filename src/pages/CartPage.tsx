@@ -6,8 +6,29 @@ import { cartService } from "../services/cartService";
 import { formatCurrency } from "../utils/format";
 
 export const CartPage = () => {
-  const { cart } = useApp();
+  const { cart, authLoading } = useApp();
   const totals = cartService.totals(cart);
+
+  if (authLoading) {
+    return (
+      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 lg:grid-cols-[1fr_360px] animate-pulse">
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+          <div className="h-7 w-40 rounded bg-slate-200" />
+          <div className="h-24 rounded bg-slate-100" />
+          <div className="h-24 rounded bg-slate-100" />
+        </section>
+        <aside className="h-fit rounded-lg border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+          <div className="h-6 w-32 rounded bg-slate-200" />
+          <div className="space-y-2">
+            <div className="h-4 rounded bg-slate-100" />
+            <div className="h-4 rounded bg-slate-100" />
+            <div className="h-4 rounded bg-slate-100" />
+          </div>
+          <div className="h-10 rounded bg-slate-200" />
+        </aside>
+      </div>
+    );
+  }
 
   if (!cart.length) {
     return (

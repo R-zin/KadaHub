@@ -6,7 +6,10 @@ const { notify } = require('./notificationService');
 const toReturn = (row) => ({
   id: String(row.id),
   orderId: String(row.order_id),
+  orderNumber: row.order_number,
   productId: String(row.product_id),
+  productName: row.product_name,
+  customerName: row.customer_name,
   reason: row.reason,
   status: row.status,
   createdAt: row.created_at
@@ -17,8 +20,18 @@ const request = async (userId, { orderId, productId, reason }) => {
   const { rows: orderRows } = await query('SELECT * FROM orders WHERE id = $1', [Number(orderId)]);
   const order = orderRows[0];
   if (!order) throw ApiError.notFound('Order not found');
-  if (order.customer_id !== userId) throw ApiError.forbidden('Not your order');
+  if (Number(order.customer_id) !== Number(userId)) throw ApiError.forbidden('Not your order');
   if (order.status !== 'Delivered') throw ApiError.conflict('Returns are only allowed on delivered orders');
+
+  const { rows: delRows } = await query('SELECT delivered_at FROM deliveries WHERE order_id = $1', [Number(orderId)]);
+  const delivery = delRows[0];
+  const deliveredAt = delivery?.delivered_at || order.placed_at;
+  const returnWindowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
+  const diffTime = Date.now() - new Date(deliveredAt).getTime();
+  const diffDays = diffTime / (1000 * 60 * 60 * 24);
+  if (diffDays > returnWindowDays) {
+    throw ApiError.conflict(`Return window has expired. Returns are only allowed within ${returnWindowDays} days of delivery.`);
+  }
 
   const { rows: itemRows } = await query(
     'SELECT * FROM order_items WHERE order_id = $1 AND product_id = $2',
@@ -30,7 +43,7 @@ const request = async (userId, { orderId, productId, reason }) => {
     `SELECT id FROM returns WHERE order_id = $1 AND product_id = $2 AND status NOT IN ('Rejected')`,
     [Number(orderId), Number(productId)]
   );
-  if (existing.length) throw ApiError.conflict('A return for this item is already in progress');
+  if (existing.length) throw ApiError.conflict('Return request already exists for this item.');
 
   const { rows } = await query(
     `INSERT INTO returns (order_id, order_item_id, product_id, customer_id, reason)
@@ -38,14 +51,20 @@ const request = async (userId, { orderId, productId, reason }) => {
     [Number(orderId), itemRows[0].id, Number(productId), userId, reason]
   );
   await notify(userId, `Return request submitted for order #${order.order_number}.`);
-  return toReturn(rows[0]);
+  return toReturn({ ...rows[0], order_number: order.order_number, product_name: itemRows[0].product_name });
 };
 
 const listFor = async (user) => {
-  let sql = 'SELECT * FROM returns';
+  let sql = `
+    SELECT r.*, o.order_number, p.name AS product_name, u.name AS customer_name
+    FROM returns r
+    JOIN orders o ON o.id = r.order_id
+    JOIN products p ON p.id = r.product_id
+    JOIN users u ON u.id = r.customer_id
+  `;
   const params = [];
-  if (user.role === 'customer') { params.push(user.id); sql += ' WHERE customer_id = $1'; }
-  sql += ' ORDER BY created_at DESC';
+  if (user.role === 'customer') { params.push(user.id); sql += ' WHERE r.customer_id = $1'; }
+  sql += ' ORDER BY r.created_at DESC';
   const { rows } = await query(sql, params);
   return rows.map(toReturn);
 };
@@ -59,7 +78,9 @@ const approve = async (returnId, admin) => {
     const { rows } = await client.query('SELECT * FROM returns WHERE id = $1 FOR UPDATE', [Number(returnId)]);
     const ret = rows[0];
     if (!ret) throw ApiError.notFound('Return not found');
-    if (['Refunded', 'Rejected'].includes(ret.status)) throw ApiError.conflict(`Return already ${ret.status.toLowerCase()}`);
+    if (ret.status !== 'Requested') {
+      throw ApiError.conflict(`Cannot approve return in status "${ret.status}" (only Requested returns can be approved)`);
+    }
 
     // Original charge for this order.
     const { rows: payRows } = await client.query(
@@ -86,13 +107,13 @@ const approve = async (returnId, admin) => {
       const { rows: rp } = await client.query(
         `INSERT INTO payments (order_id, provider, provider_ref, amount, currency, type, status)
          VALUES ($1, $2, $3, $4, $5, 'refund', 'Paid')
-         ON CONFLICT (order_id, type) DO NOTHING RETURNING id`,
+         ON CONFLICT (order_id, type) DO UPDATE SET amount = payments.amount + EXCLUDED.amount, status = 'Paid' RETURNING id`,
         [ret.order_id, charge.provider, refundRef, refundAmount, charge.currency]
       );
       refundPaymentId = rp[0] ? rp[0].id : null;
     }
 
-    // Restock the product.
+    // Restock the product safely (only once).
     if (item && !ret.restocked) {
       await client.query('UPDATE products SET stock = stock + $1, updated_at = now() WHERE id = $2', [item.quantity, ret.product_id]);
     }
@@ -113,7 +134,7 @@ const approve = async (returnId, admin) => {
 const reject = async (returnId, admin) => {
   const { rows } = await query(
     `UPDATE returns SET status = 'Rejected', reviewed_by = $1, resolved_at = now()
-     WHERE id = $2 AND status NOT IN ('Refunded','Rejected') RETURNING *`,
+     WHERE id = $2 AND status = 'Requested' RETURNING *`,
     [admin.id, Number(returnId)]
   );
   if (!rows.length) throw ApiError.conflict('Return not found or already resolved');

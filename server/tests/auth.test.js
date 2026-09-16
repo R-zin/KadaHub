@@ -52,3 +52,45 @@ test('RBAC: a customer cannot access admin routes', async () => {
   const res = await server.client.get('/api/admin/stats', { token: reg.body.token });
   assert.equal(res.status, 403);
 });
+
+test('public registration rejects admin role with 400 Bad Request', async () => {
+  const res = await server.client.post('/api/auth/register', {
+    name: 'Attacker Admin', email: 'attacker@test.com', password: 'secret123', role: 'admin'
+  });
+  assert.equal(res.status, 400);
+});
+
+test('public registration rejects delivery role with 400 Bad Request', async () => {
+  const res = await server.client.post('/api/auth/register', {
+    name: 'Attacker Delivery', email: 'attacker-del@test.com', password: 'secret123', role: 'delivery'
+  });
+  assert.equal(res.status, 400);
+});
+
+test('public registration allows seller role and defaults storeName if blank', async () => {
+  const res = await server.client.post('/api/auth/register', {
+    name: 'New Seller', email: 'newseller@test.com', password: 'secret123', role: 'seller'
+  });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.user.role, 'seller');
+  assert.equal(res.body.user.storeName, "New Seller's Store");
+});
+
+test('admin can provision staff users via POST /api/admin/users', async () => {
+  const adminLogin = await server.client.post('/api/auth/login', { email: 'admin@test.com', password: 'password123' });
+  const adminToken = adminLogin.body.token;
+
+  const res = await server.client.post('/api/admin/users', {
+    name: 'New Agent', email: 'agent1@test.com', password: 'password123', role: 'delivery'
+  }, { token: adminToken });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.user.role, 'delivery');
+
+  // Verify non-admin cannot access POST /api/admin/users
+  const custLogin = await server.client.post('/api/auth/login', { email: 'cust@test.com', password: 'secret123' });
+  const forbidden = await server.client.post('/api/admin/users', {
+    name: 'Sneaky', email: 'sneaky@test.com', password: 'password123', role: 'admin'
+  }, { token: custLogin.body.token });
+  assert.equal(forbidden.status, 403);
+});
+

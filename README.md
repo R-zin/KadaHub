@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 # KadaHub — E-Commerce Management System and AI
-=======
-# KadaHub – E-Commerce Management System and AI
->>>>>>> 7097d6403938ace08a2da39a969b4ebefdc79c6c
 
 A full-stack multi-category marketplace with role-based interfaces for
 **Customers, Sellers, Delivery Agents, and Administrators**, plus a stubbed

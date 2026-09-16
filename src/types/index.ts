@@ -93,7 +93,10 @@ export type ReturnStatus =
 export interface ReturnRequest {
   id: string;
   orderId: string;
+  orderNumber?: string;
   productId: string;
+  productName?: string;
+  customerName?: string;
   reason: string;
   status: ReturnStatus;
   createdAt: string;

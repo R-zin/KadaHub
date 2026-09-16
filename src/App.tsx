@@ -26,7 +26,7 @@ export default function App() {
         <Route path="category/:categorySlug" element={<CategoryPage />} />
         <Route path="search" element={<ProductListPage />} />
         <Route path="cart" element={<CartPage />} />
-        <Route path="checkout" element={<CheckoutPage />} />
+        <Route path="checkout" element={<ProtectedRoute roles={["customer"]}><CheckoutPage /></ProtectedRoute>} />
         <Route path="orders" element={<OrdersPage />} />
         <Route path="orders/:orderId" element={<OrderDetailPage />} />
         <Route path="wishlist" element={<WishlistPage />} />

@@ -15,14 +15,19 @@ const upload = multer({
   }
 });
 
-// Upload an image (e.g. a try-on source photo or product reference image).
-router.post('/', authenticate, upload.single('image'), async (req, res, next) => {
+// Upload single or multiple images (e.g. product images or try-on source photos).
+router.post('/', authenticate, upload.any(), async (req, res, next) => {
   try {
-    if (!req.file) throw ApiError.badRequest('No image file provided (field name "image")');
-    const ext = path.extname(req.file.originalname) || '.jpg';
-    const folder = req.body.folder === 'tryon' ? 'tryon' : 'misc';
-    const { url } = await storageService.save(req.file.buffer, { ext, folder });
-    res.status(201).json({ url });
+    const files = req.files || [];
+    if (!files.length) throw ApiError.badRequest('No image file provided (field name "image" or "images")');
+    const folder = req.body.folder === 'tryon' ? 'tryon' : 'products';
+    const urls = [];
+    for (const file of files) {
+      const ext = path.extname(file.originalname) || '.jpg';
+      const { url } = await storageService.save(file.buffer, { ext, folder });
+      urls.push(url);
+    }
+    res.status(201).json({ url: urls[0], urls });
   } catch (err) { next(err); }
 });
 

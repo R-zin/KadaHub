@@ -19,7 +19,7 @@ router.post(
     name: { required: true, type: 'string', max: 120 },
     email: { required: true, type: 'email' },
     password: { required: true, type: 'string' },
-    role: { type: 'string', enum: ['customer', 'seller', 'delivery', 'admin'] },
+    role: { type: 'string', enum: ['customer', 'seller'] },
     storeName: { type: 'string', max: 120 },
     phone: { type: 'string', max: 40 }
   }),

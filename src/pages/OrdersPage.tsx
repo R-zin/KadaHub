@@ -6,8 +6,39 @@ import { useApp } from "../context/AppContext";
 import { compactDate, formatCurrency } from "../utils/format";
 
 export const OrdersPage = () => {
-  const { orders } = useApp();
-  if (!orders.length) return <div className="mx-auto max-w-5xl px-4 py-10"><EmptyState title="No orders yet" message="Checkout creates trackable mock orders." /></div>;
+  const { orders, authLoading } = useApp();
+
+  if (authLoading) {
+    return (
+      <div className="mx-auto max-w-6xl px-4 py-8 animate-pulse">
+        <div className="h-9 w-36 rounded bg-slate-200" />
+        <div className="mt-6 grid gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="h-6 w-48 rounded bg-slate-200" />
+              <div className="h-4 w-64 rounded bg-slate-200" />
+              <div className="flex gap-3">
+                <div className="h-16 w-16 rounded bg-slate-200" />
+                <div className="h-16 w-16 rounded bg-slate-200" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!orders.length) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-10">
+        <EmptyState
+          title="No orders yet"
+          message="When you complete checkout, your order and live tracking will appear here."
+          action={<Link to="/products"><Button>Start Shopping</Button></Link>}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">

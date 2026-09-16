@@ -34,6 +34,16 @@ export const productService = {
   updateProduct: (id: string, patch: Partial<Product>) => api<{ product: Product }>(`/products/${id}`, { method: "PUT", body: patch }).then((d) => d.product),
   updateStock: (id: string, stock: number) => api<{ product: Product }>(`/products/${id}/stock`, { method: "PATCH", body: { stock } }).then((d) => d.product),
   deleteProduct: (id: string) => api(`/products/${id}`, { method: "DELETE" }),
+  uploadImages: async (files: File[]): Promise<string[]> => {
+    if (!files.length) return [];
+    const formData = new FormData();
+    files.forEach((f) => formData.append("images", f));
+    const data = await api<{ urls?: string[]; url?: string }>("/uploads", {
+      method: "POST",
+      formData
+    });
+    return data.urls || (data.url ? [data.url] : []);
+  },
   categorySlugForProduct: (product: Product) => slugify(product.category)
 };
 

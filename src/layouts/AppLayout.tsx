@@ -159,7 +159,18 @@ export const AppLayout = () => {
             <form onSubmit={submit} className="mt-4">
               <input value={query} onChange={(event) => setQuery(event.target.value)} className="w-full rounded-md border border-slate-200 px-3 py-2" placeholder="Search products" />
             </form>
-            <nav className="mt-4 grid gap-2" onClick={() => setMobileOpen(false)}>{quickLinks}</nav>
+            <nav className="mt-4 grid gap-2" onClick={() => setMobileOpen(false)}>
+              {quickLinks}
+              <div className="border-t border-slate-200 pt-2 mt-2 grid gap-2">
+                <NavLink className={navLink} to="/wishlist">Wishlist ({wishlist.length})</NavLink>
+                <NavLink className={navLink} to="/cart">Cart ({cart.length})</NavLink>
+                {user ? (
+                  <NavLink className={navLink} to="/account">Account ({user.name})</NavLink>
+                ) : (
+                  <NavLink className={navLink} to="/login">Login / Register</NavLink>
+                )}
+              </div>
+            </nav>
           </aside>
         </div>
       )}
@@ -187,7 +198,19 @@ export const AppLayout = () => {
 };
 
 export const ProtectedRoute = ({ roles, children }: { roles: string[]; children: React.ReactNode }) => {
-  const { user } = useApp();
+  const { user, authLoading } = useApp();
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="flex items-center gap-3 font-medium text-slate-600">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+          <span>Verifying session...</span>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-20 text-center">

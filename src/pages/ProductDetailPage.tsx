@@ -11,10 +11,27 @@ import { canUseVirtualTryOn } from "../services/tryOnService";
 export const ProductDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { products, addToCart, wishlist, toggleWishlist } = useApp();
+  const { products, addToCart, wishlist, toggleWishlist, productsLoading } = useApp();
   const product = products.find((item) => item.id === id);
   const [quantity, setQuantity] = useState(1);
   const [imageIndex, setImageIndex] = useState(0);
+
+  if (productsLoading) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-12">
+        <div className="grid gap-8 lg:grid-cols-[1fr_460px] animate-pulse">
+          <div className="h-[460px] rounded-lg bg-slate-200" />
+          <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-6">
+            <div className="h-6 w-1/3 rounded bg-slate-200" />
+            <div className="h-10 w-3/4 rounded bg-slate-200" />
+            <div className="h-4 w-1/2 rounded bg-slate-200" />
+            <div className="h-20 w-full rounded bg-slate-200" />
+            <div className="h-12 w-full rounded bg-slate-200" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!product) {
     return <div className="mx-auto max-w-5xl px-4 py-10"><EmptyState title="Product unavailable" message="This product could not be found or may have been removed." /></div>;
@@ -32,7 +49,13 @@ export const ProductDetailPage = () => {
           </div>
           <div className="mt-3 flex gap-3">
             {product.images.map((image, index) => (
-              <button key={image} className={`h-20 w-20 overflow-hidden rounded-md border ${index === imageIndex ? "border-primary-600" : "border-slate-200"}`} onClick={() => setImageIndex(index)}>
+              <button
+                key={image}
+                type="button"
+                aria-label={`View photo ${index + 1} of ${product.name}`}
+                className={`h-20 w-20 overflow-hidden rounded-md border ${index === imageIndex ? "border-primary-600 ring-2 ring-primary-500/30" : "border-slate-200"}`}
+                onClick={() => setImageIndex(index)}
+              >
                 <img src={image} alt={`${product.name} thumbnail ${index + 1}`} className="h-full w-full object-cover" />
               </button>
             ))}
@@ -55,11 +78,10 @@ export const ProductDetailPage = () => {
             <span className="inline-flex h-10 min-w-12 items-center justify-center rounded-md border border-slate-200 px-3 font-semibold">{quantity}</span>
             <IconButton label="Increase quantity" onClick={() => setQuantity(Math.min(product.stock, quantity + 1))}><Plus className="h-4 w-4" /></IconButton>
           </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <Button disabled={product.stock === 0} onClick={() => addToCart(product, quantity)}><ShoppingCart className="h-4 w-4" /> Add to Cart</Button>
             <Button disabled={product.stock === 0} variant="secondary" onClick={() => { addToCart(product, quantity); navigate("/checkout"); }}><ShoppingBag className="h-4 w-4" /> Buy Now</Button>
             <Button variant="secondary" onClick={() => toggleWishlist(product)}><Heart className={`h-4 w-4 ${wished ? "fill-rose-600 text-rose-600" : ""}`} /> Wishlist</Button>
-            <Button variant="secondary">Compare</Button>
           </div>
           {canUseVirtualTryOn(product) && (
             <div className="mt-6 rounded-lg border border-primary-100 bg-primary-50 p-4">
