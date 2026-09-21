@@ -22,12 +22,10 @@ const mockDriver = {
   }
 };
 
-// const mlDriver = { async generatePreview({ product, sourceImage, size, color }) {
-//   // call a hosted garment-rendering API, persist the result via storageService,
-//   // and return { previewImage: url }
-// } };
+// Real ML provider: IDM-VTON hosted on Modal (see modal/tryon_app.py).
+const modalDriver = require('./tryOnModalDriver');
 
-const drivers = { mock: mockDriver };
+const drivers = { mock: mockDriver, modal: modalDriver };
 const driver = drivers[config.tryOn.driver] || mockDriver;
 
 module.exports = {
