@@ -10,7 +10,9 @@ A full-stack multi-category marketplace with role-based interfaces for
 - **Auth** — JWT with role-based access control + sliding 15-min inactivity logout
 - **Payments** — mock gateway (Stripe-test-mode style) behind a swappable interface
 - **Notifications** — console driver now, email/SMS provider pluggable
-- **AI Try-On** — mock compositor behind `tryOnService.generatePreview(...)`
+- **AI Try-On** — real IDM-VTON model on [Modal](https://modal.com) behind
+  `tryOnService.generatePreview(...)` (`TRYON_DRIVER=modal`), with a `mock`
+  fallback for dev/tests. See `modal/README.md` to deploy.
 
 ---
 
@@ -32,6 +34,7 @@ A full-stack multi-category marketplace with role-based interfaces for
 │   │   ├── controllers/
 │   │   └── routes/
 │   └── tests/            # auth / checkout / return core-flow tests
+├── modal/                # IDM-VTON virtual try-on deployed on Modal (modal/tryon_app.py)
 └── README.md
 ```
 
@@ -132,7 +135,7 @@ provider can replace the dev stub without touching callers:
 | Payments       | `paymentService.charge/refund`     | `mock`     | `PAYMENT_DRIVER` |
 | File storage   | `storageService.save`              | `local`    | `STORAGE_DRIVER` |
 | Notifications  | `notificationService.notify`       | `console`  | `NOTIFICATION_DRIVER` |
-| AI Try-On      | `tryOnService.generatePreview`     | `mock`     | `TRYON_DRIVER` |
+| AI Try-On      | `tryOnService.generatePreview`     | `mock`     | `TRYON_DRIVER` (`modal` = IDM-VTON on Modal, see `modal/README.md`) |
 
 ---
 

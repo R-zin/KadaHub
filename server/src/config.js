@@ -40,6 +40,14 @@ module.exports = {
     currency: (process.env.PAYMENT_CURRENCY || 'inr').toLowerCase(),
     stripeSecretKey: process.env.STRIPE_SECRET_KEY || ''
   },
-  tryOn: { driver: process.env.TRYON_DRIVER || 'mock' },
+  tryOn: {
+    driver: process.env.TRYON_DRIVER || 'mock',
+    // Modal-hosted IDM-VTON endpoint (see modal/tryon_app.py)
+    modalUrl: process.env.TRYON_MODAL_URL || '',
+    modalToken: process.env.TRYON_API_TOKEN || '',
+    // Inference tuning for the Modal driver
+    steps: Number(process.env.TRYON_STEPS || 30),
+    timeoutMs: Number(process.env.TRYON_TIMEOUT_MS || 180000)
+  },
   notifications: { driver: process.env.NOTIFICATION_DRIVER || 'console' }
 };

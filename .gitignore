@@ -6,3 +6,4 @@ server/uploads/
 *.log
 *.tsbuildinfo
 .claude/
+.venv-modal/
