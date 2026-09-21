@@ -5,11 +5,22 @@ import type { CartItem as CartItemType } from "../types";
 import { formatCurrency } from "../utils/format";
 import { IconButton } from "./ui";
 
+const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=300&auto=format&fit=crop&q=80";
+
 export const CartItem = ({ item }: { item: CartItemType }) => {
   const { updateCartQuantity, removeFromCart } = useApp();
+  const imageUrl = (item.product?.images && item.product.images[0]) || FALLBACK_IMAGE;
+
   return (
     <div className="grid gap-4 border-b border-slate-100 py-4 sm:grid-cols-[96px_1fr_auto]">
-      <img src={item.product.images[0]} alt={item.product.name} className="h-24 w-24 rounded-lg object-cover" />
+      <img
+        src={imageUrl}
+        alt={item.product?.name || "Product"}
+        className="h-24 w-24 rounded-lg object-cover"
+        onError={(e) => {
+          (e.target as HTMLImageElement).src = FALLBACK_IMAGE;
+        }}
+      />
       <div>
         <Link to={`/products/${item.product.id}`} className="font-semibold text-slate-950 hover:text-primary-700">{item.product.name}</Link>
         <p className="mt-1 text-sm text-slate-500">{item.product.brand} · {item.product.category}</p>

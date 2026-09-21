@@ -11,14 +11,15 @@ const startServer = () =>
       const base = `http://127.0.0.1:${port}`;
       const client = {
         base,
-        async req(method, path, { body, token } = {}) {
+        async req(method, path, { body, token, rawBody, headers } = {}) {
           const res = await fetch(base + path, {
             method,
             headers: {
               'content-type': 'application/json',
-              ...(token ? { authorization: `Bearer ${token}` } : {})
+              ...(token ? { authorization: `Bearer ${token}` } : {}),
+              ...headers
             },
-            body: body ? JSON.stringify(body) : undefined
+            body: rawBody !== undefined ? rawBody : (body ? JSON.stringify(body) : undefined)
           });
           let json = null;
           try { json = await res.json(); } catch { /* no body */ }
@@ -28,7 +29,8 @@ const startServer = () =>
         post(p, b, o = {}) { return this.req('POST', p, { ...o, body: b }); },
         patch(p, b, o = {}) { return this.req('PATCH', p, { ...o, body: b }); },
         put(p, b, o = {}) { return this.req('PUT', p, { ...o, body: b }); },
-        del(p, o) { return this.req('DELETE', p, o); }
+        del(p, o) { return this.req('DELETE', p, o); },
+        delete(p, o) { return this.del(p, o); }
       };
       resolve({ client, close: () => new Promise((r) => server.close(r)) });
     });
@@ -61,6 +63,10 @@ const seedFixtures = async () => {
   );
   const category = await ins(
     "INSERT INTO categories (name,slug) VALUES ('Clothing','clothing') RETURNING id"
+  );
+  await pool.query(
+    "INSERT INTO category_subcategories (category_id, name) VALUES ($1, 'T-Shirts'), ($1, 'Shirts'), ($1, 'Dresses')",
+    [category.id]
   );
   const product = await ins(
     `INSERT INTO products (seller_id,category_id,subcategory,name,price,stock,is_virtual_try_on_supported)

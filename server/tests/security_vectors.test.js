@@ -150,3 +150,92 @@ test('Vector 9: Attempt to register admin through public registration -> 400 Bad
   });
   assert.equal(res.status, 400);
 });
+
+test('Vector 10: Seller A attempting to delete Seller B product -> 403 Forbidden', async () => {
+  const res = await server.client.del(`/api/products/${sellerBProductId}`, { token: sellerAToken });
+  assert.equal(res.status, 403);
+});
+
+test('Vector 11: Seller A attempting to update stock of Seller B product -> 403 Forbidden', async () => {
+  const res = await server.client.patch(`/api/products/${sellerBProductId}/stock`, { stock: 999 }, { token: sellerAToken });
+  assert.equal(res.status, 403);
+});
+
+test('Vector 12: Customer attempting to approve return -> 403 Forbidden', async () => {
+  const res = await server.client.post('/api/returns/1/approve', {}, { token: customerToken });
+  assert.equal(res.status, 403);
+});
+
+test('Vector 13: Customer attempting to claim delivery -> 403 Forbidden', async () => {
+  const res = await server.client.post('/api/orders/1/claim', {}, { token: customerToken });
+  assert.equal(res.status, 403);
+});
+
+test('Vector 14: Malformed JWT token returns 401 Unauthorized', async () => {
+  const res = await server.client.get('/api/cart', { token: 'malformed.token.value' });
+  assert.equal(res.status, 401);
+});
+
+test('Vector 15: Expired JWT token returns 401 Unauthorized', async () => {
+  const jwt = require('jsonwebtoken');
+  const config = require('../src/config');
+  const expiredToken = jwt.sign({ sub: 1, role: 'customer' }, config.jwt.secret, { expiresIn: '0s' });
+  const res = await server.client.get('/api/cart', { token: expiredToken });
+  assert.equal(res.status, 401);
+});
+
+test('Vector 16: Malformed JSON body returns 400 Bad Request', async () => {
+  const res = await server.client.req('POST', '/api/auth/login', {
+    rawBody: '{"email": "broken json...',
+    headers: { 'content-type': 'application/json' }
+  });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error.message, /malformed json/i);
+});
+
+test('Vector 17: Non-numeric invalid IDs return 400 or 404 cleanly (never 500)', async () => {
+  const resProduct = await server.client.get('/api/products/not-a-number');
+  assert.equal(resProduct.status, 404);
+
+  const resOrder = await server.client.get('/api/orders/invalid-id', { token: customerToken });
+  assert.equal(resOrder.status, 404);
+
+  const resCart = await server.client.post('/api/cart/items', { productId: 'invalid', quantity: 1 }, { token: customerToken });
+  assert.equal(resCart.status, 400);
+});
+
+test('Vector 18: Whitespace-only name during registration -> 400 Bad Request', async () => {
+  const res = await server.client.post('/api/auth/register', {
+    name: '   ',
+    email: 'blankname@test.com',
+    password: 'password123'
+  });
+  assert.equal(res.status, 400);
+});
+
+test('Vector 19: Password under 6 characters during registration -> 400 Bad Request', async () => {
+  const res = await server.client.post('/api/auth/register', {
+    name: 'Short Pass User',
+    email: 'shortpass@test.com',
+    password: '123'
+  });
+  assert.equal(res.status, 400);
+});
+
+test('Vector 20: Missing credentials during login -> 400 Bad Request', async () => {
+  const res = await server.client.post('/api/auth/login', {
+    email: '',
+    password: ''
+  });
+  assert.equal(res.status, 400);
+});
+
+test("Vector 21: Customer attempting to view other customer's order -> 403 Forbidden", async () => {
+  const reg2 = await server.client.post('/api/auth/register', {
+    name: 'Customer Two',
+    email: 'cust2_sec@test.com',
+    password: 'password123'
+  });
+  const res = await server.client.get(`/api/orders/${orderAssignedToDeliveryA}`, { token: reg2.body.token });
+  assert.equal(res.status, 403);
+});

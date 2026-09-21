@@ -29,6 +29,7 @@ export const AppLayout = () => {
     event.preventDefault();
     if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`);
     setShowSuggestions(false);
+    setMobileOpen(false);
   };
 
   const quickLinks = (
@@ -150,8 +151,14 @@ export const AppLayout = () => {
         </div>
       </header>
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 lg:hidden">
-          <aside className="h-full w-80 max-w-[85vw] bg-white p-4 shadow-soft">
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/40 lg:hidden transition-opacity"
+          onClick={() => setMobileOpen(false)}
+        >
+          <aside
+            className="h-full w-80 max-w-[85vw] overflow-y-auto bg-white p-4 shadow-soft"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-2 font-bold"> <img src="/kadahub-logo.png" alt="KadaHub logo" className="h-10 w-auto shrink-0 object-contain" /> KadaHub </span>
               <IconButton label="Close menu" onClick={() => setMobileOpen(false)}><X className="h-5 w-5" /></IconButton>

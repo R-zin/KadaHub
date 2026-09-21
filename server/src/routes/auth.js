@@ -16,9 +16,9 @@ router.post(
   '/register',
   authLimiter,
   validate({
-    name: { required: true, type: 'string', max: 120 },
+    name: { required: true, type: 'string', min: 2, max: 120 },
     email: { required: true, type: 'email' },
-    password: { required: true, type: 'string' },
+    password: { required: true, type: 'string', min: 6 },
     role: { type: 'string', enum: ['customer', 'seller'] },
     storeName: { type: 'string', max: 120 },
     phone: { type: 'string', max: 40 }

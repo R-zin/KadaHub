@@ -79,6 +79,13 @@ export interface Order {
   deliveryAddress: Address;
   status: OrderStatus;
   total: number;
+  customerId?: string;
+  customerName?: string;
+  customerEmail?: string;
+  subtotal?: number;
+  deliveryFee?: number;
+  discount?: number;
+  deliveryAgentId?: string;
 }
 
 export type ReturnStatus =

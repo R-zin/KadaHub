@@ -1,7 +1,7 @@
 import type { Product, TryOnResult } from "../types";
 import { api } from "./api";
 
-export const canUseVirtualTryOn = (product?: Product) =>
+export const canUseVirtualTryOn = (product?: Product | null) =>
   Boolean(product && product.category === "Clothing" && product.isVirtualTryOnSupported);
 
 export const tryOnService = {
@@ -16,5 +16,16 @@ export const tryOnService = {
   },
   generatePreview: (productId: string, sourceImage: string, size: string, color: string) =>
     api<{ result: TryOnResult }>("/tryon/generate", { method: "POST", body: { productId, sourceImage, size, color } }).then((d) => d.result),
-  getSaved: () => api<{ results: TryOnResult[] }>("/tryon").then((d) => d.results)
+  getSaved: () => api<{ results: TryOnResult[] }>("/tryon").then((d) => d.results),
+  cleanupTempImage: async (urlOrPath: string): Promise<void> => {
+    if (!urlOrPath) return;
+    const match = urlOrPath.match(/(tryon_\d+__[a-f0-9-]+\.[a-z0-9]+)/i);
+    if (!match) return;
+    const filename = match[1];
+    try {
+      await api(`/tryon/temp/${filename}`, { method: "DELETE" });
+    } catch {
+      // Best-effort non-blocking cleanup
+    }
+  }
 };

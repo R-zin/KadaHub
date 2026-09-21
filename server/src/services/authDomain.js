@@ -16,6 +16,16 @@ const publicUser = (row) => ({
 
 /** Register a new account. Seller accounts may supply a storefront name. */
 const register = async ({ name, email, password, role = 'customer', storeName, phone }) => {
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    throw ApiError.badRequest('Name is required');
+  }
+  if (!email || typeof email !== 'string' || !email.trim()) {
+    throw ApiError.badRequest('Email is required');
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    throw ApiError.badRequest('Password must be at least 6 characters');
+  }
+
   const allowedRoles = ['customer', 'seller'];
   if (!allowedRoles.includes(role)) {
     throw ApiError.badRequest('Public registration is restricted to customer and seller accounts');

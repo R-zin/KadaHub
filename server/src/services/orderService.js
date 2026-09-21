@@ -24,6 +24,9 @@ const toOrder = (row, items, isSeller = false) => {
   return {
     id: String(row.id),
     orderNumber: row.order_number,
+    customerId: String(row.customer_id),
+    customerName: row.customer_name || row.ship_name || 'Customer',
+    customerEmail: isSeller ? undefined : (row.customer_email || undefined),
     date: row.placed_at,
     status: row.status,
     paymentStatus: row.payment_status || 'Pending',
@@ -70,8 +73,9 @@ const fetchItems = async (client, orderId, sellerId = null) => {
 };
 
 const getOrderRow = `
-  SELECT o.*, pay.payment_status, d.agent_id AS delivery_agent_id
+  SELECT o.*, pay.payment_status, d.agent_id AS delivery_agent_id, u.name AS customer_name, u.email AS customer_email
   FROM orders o
+  JOIN users u ON u.id = o.customer_id
   LEFT JOIN LATERAL (
     SELECT CASE
              WHEN bool_or(p.type = 'refund' AND p.status = 'Paid') THEN 'Refunded'
@@ -85,12 +89,68 @@ const getOrderRow = `
 `;
 
 /**
+ * Create a server-authoritative Razorpay order for the customer's current cart.
+ * Validates stock, calculates total authoritatively, and calls Razorpay API.
+ */
+const createRazorpayOrder = async (userId) => {
+  const { rows: cart } = await query(
+    `SELECT ci.product_id, ci.quantity, p.name, p.price, p.stock
+     FROM cart_items ci JOIN products p ON p.id = ci.product_id
+     WHERE ci.user_id = $1 ORDER BY ci.added_at`,
+    [userId]
+  );
+  if (!cart.length) throw ApiError.badRequest('Your cart is empty');
+
+  for (const item of cart) {
+    if (item.quantity > item.stock) {
+      throw ApiError.conflict(
+        `This product "${item.name}" does not have enough stock (is no longer available in the requested quantity: requested ${item.quantity}, available ${item.stock}).`
+      );
+    }
+  }
+
+  const totals = priceCart(cart);
+  const receipt = `rcpt_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+  const rzpOrder = await paymentService.createOrder({
+    amount: totals.total,
+    currency: 'INR',
+    receipt,
+    notes: { userId: String(userId) }
+  });
+
+  return {
+    order_id: rzpOrder.order_id,
+    amount: rzpOrder.amount,
+    currency: rzpOrder.currency,
+    key_id: rzpOrder.key_id
+  };
+};
+
+/**
  * Checkout: verify stock -> charge payment -> create order/items/payment/delivery,
  * decrement stock, clear the cart, and notify. All in one transaction; if payment
  * fails we roll everything back and record a Failed payment note.
  */
 const checkout = async (userId, address, payment = {}) => {
+  if (!address || typeof address !== 'object') {
+    throw ApiError.badRequest('Delivery address is required');
+  }
+  if (!address.name?.trim() || !address.line1?.trim() || !address.city?.trim()) {
+    throw ApiError.badRequest('Delivery address requires name, line1, and city');
+  }
+
   const result = await withTransaction(async (client) => {
+    // 0. Protect against duplicate payment submissions (idempotency)
+    if (payment && payment.razorpay_payment_id) {
+      const { rows: existingPayment } = await client.query(
+        `SELECT id FROM payments WHERE provider_ref = $1 AND status = 'Paid'`,
+        [payment.razorpay_payment_id]
+      );
+      if (existingPayment.length) {
+        throw ApiError.conflict('This payment has already been processed for an order.');
+      }
+    }
+
     // 1. Load the cart with a row lock on each product (prevents overselling).
     const { rows: cart } = await client.query(
       `SELECT ci.product_id, ci.quantity, p.name, p.price, p.stock,
@@ -111,9 +171,13 @@ const checkout = async (userId, address, payment = {}) => {
     // 3. Price the order.
     const totals = priceCart(cart);
 
-    // 4. Charge through the payment gateway. Only proceed on success.
+    // 4. Charge or verify signature through the payment gateway. Only proceed on success.
     const charge = await paymentService.charge({
-      amount: totals.total, currency: 'usd', orderNumber: 'pending', customer: userId
+      amount: totals.total,
+      currency: 'INR',
+      orderNumber: 'pending',
+      customer: userId,
+      payment
     });
     if (!charge.ok) {
       await notify(userId, `Payment failed: ${charge.failureReason}. No order was placed.`);
@@ -140,10 +204,11 @@ const checkout = async (userId, address, payment = {}) => {
       await client.query('UPDATE products SET stock = stock - $1, updated_at = now() WHERE id = $2', [item.quantity, item.product_id]);
     }
 
+    const provider = charge.provider || (payment && payment.razorpay_payment_id ? 'razorpay' : 'stripe_test');
     await client.query(
       `INSERT INTO payments (order_id, provider, provider_ref, amount, currency, type, status)
-       VALUES ($1, $2, $3, $4, 'USD', 'charge', 'Paid')`,
-      [order.id, 'stripe_test', charge.ref, totals.total]
+       VALUES ($1, $2, $3, $4, 'INR', 'charge', 'Paid')`,
+      [order.id, provider, charge.ref, totals.total]
     );
 
     // Auto-assign the delivery to the least-busy available agent.
@@ -201,7 +266,9 @@ const listFor = async (user, { sellerId, unassigned } = {}) => {
 };
 
 const getById = async (id, user) => {
-  const { rows } = await query(`${getOrderRow} WHERE o.id = $1`, [Number(id)]);
+  const numId = Number(id);
+  if (isNaN(numId) || !Number.isInteger(numId) || numId <= 0) throw ApiError.notFound('Order not found');
+  const { rows } = await query(`${getOrderRow} WHERE o.id = $1`, [numId]);
   const row = rows[0];
   if (!row) throw ApiError.notFound('Order not found');
   if (user && user.role === 'customer' && Number(row.customer_id) !== Number(user.id)) throw ApiError.forbidden('Not your order');
@@ -222,10 +289,14 @@ const getById = async (id, user) => {
 /** Delivery agent claims an unassigned delivery. */
 const claimDelivery = async (orderId, agent) => {
   if (agent.role !== 'delivery') throw ApiError.forbidden('Only delivery agents can claim orders');
+  const numOrderId = Number(orderId);
+  if (isNaN(numOrderId) || !Number.isInteger(numOrderId) || numOrderId <= 0) {
+    throw ApiError.notFound('Order delivery record not found');
+  }
   await withTransaction(async (client) => {
     const { rows } = await client.query(
       `SELECT d.*, o.status AS order_status FROM deliveries d JOIN orders o ON o.id = d.order_id WHERE d.order_id = $1 FOR UPDATE OF d`,
-      [Number(orderId)]
+      [numOrderId]
     );
     const delivery = rows[0];
     if (!delivery) throw ApiError.notFound('Order delivery record not found');
@@ -237,22 +308,30 @@ const claimDelivery = async (orderId, agent) => {
     }
     await client.query(
       `UPDATE deliveries SET agent_id = $1, status = 'Assigned', updated_at = now() WHERE order_id = $2`,
-      [agent.id, Number(orderId)]
+      [agent.id, numOrderId]
     );
   });
-  return getById(orderId, agent);
+  return getById(numOrderId, agent);
 };
 
 /** Admin assigns an order to a delivery agent. */
 const assignDelivery = async (orderId, agentId) => {
-  const { rows: agentRows } = await query(`SELECT id, role, is_active FROM users WHERE id = $1`, [Number(agentId)]);
+  const numOrderId = Number(orderId);
+  const numAgentId = Number(agentId);
+  if (isNaN(numOrderId) || !Number.isInteger(numOrderId) || numOrderId <= 0) {
+    throw ApiError.notFound('Order delivery record not found');
+  }
+  if (isNaN(numAgentId) || !Number.isInteger(numAgentId) || numAgentId <= 0) {
+    throw ApiError.badRequest('Invalid or inactive delivery agent');
+  }
+  const { rows: agentRows } = await query(`SELECT id, role, is_active FROM users WHERE id = $1`, [numAgentId]);
   if (!agentRows.length || agentRows[0].role !== 'delivery' || !agentRows[0].is_active) {
     throw ApiError.badRequest('Invalid or inactive delivery agent');
   }
   await withTransaction(async (client) => {
     const { rows } = await client.query(
       `SELECT d.*, o.status AS order_status FROM deliveries d JOIN orders o ON o.id = d.order_id WHERE d.order_id = $1 FOR UPDATE OF d`,
-      [Number(orderId)]
+      [numOrderId]
     );
     const delivery = rows[0];
     if (!delivery) throw ApiError.notFound('Order delivery record not found');
@@ -261,15 +340,19 @@ const assignDelivery = async (orderId, agentId) => {
     }
     await client.query(
       `UPDATE deliveries SET agent_id = $1, status = 'Assigned', updated_at = now() WHERE order_id = $2`,
-      [Number(agentId), Number(orderId)]
+      [numAgentId, numOrderId]
     );
   });
-  return getById(orderId);
+  return getById(numOrderId);
 };
 
 /** Advance an order to the next delivery status (delivery agent or admin). */
 const advanceStatus = async (orderId, actor) => {
-  const { rows } = await query(`${getOrderRow} WHERE o.id = $1`, [Number(orderId)]);
+  const numOrderId = Number(orderId);
+  if (isNaN(numOrderId) || !Number.isInteger(numOrderId) || numOrderId <= 0) {
+    throw ApiError.notFound('Order not found');
+  }
+  const { rows } = await query(`${getOrderRow} WHERE o.id = $1`, [numOrderId]);
   const row = rows[0];
   if (!row) throw ApiError.notFound('Order not found');
 
@@ -312,4 +395,4 @@ const advanceStatus = async (orderId, actor) => {
   return getById(orderId, actor);
 };
 
-module.exports = { checkout, listFor, getById, advanceStatus, claimDelivery, assignDelivery, priceCart, ORDER_TIMELINE };
+module.exports = { checkout, createRazorpayOrder, listFor, getById, advanceStatus, claimDelivery, assignDelivery, priceCart, ORDER_TIMELINE };

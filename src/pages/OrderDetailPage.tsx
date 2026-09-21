@@ -1,20 +1,38 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { OrderTimeline } from "../components/OrderTimeline";
 import { StatusBadge } from "../components/StatusBadge";
 import { Button, EmptyState, ErrorState } from "../components/ui";
 import { useApp } from "../context/AppContext";
+import { orderService } from "../services/orderService";
+import type { Order } from "../types";
 import { compactDate, formatCurrency } from "../utils/format";
 
 export const OrderDetailPage = () => {
   const { orderId } = useParams();
   const { orders, returns, addReturnRequest, authLoading } = useApp();
+  const cachedOrder = orders.find((item) => item.id === orderId);
+  const [fetchedOrder, setFetchedOrder] = useState<Order | null>(null);
+  const [fetching, setFetching] = useState(false);
   const [reason, setReason] = useState("Size or fit issue");
   const [requestingProductId, setRequestingProductId] = useState<string | null>(null);
   const [returnError, setReturnError] = useState("");
   const [returnSuccess, setReturnSuccess] = useState("");
 
-  if (authLoading) {
+  useEffect(() => {
+    if (!cachedOrder && orderId && !authLoading) {
+      setFetching(true);
+      orderService
+        .getOrder(orderId)
+        .then((ord) => setFetchedOrder(ord))
+        .catch(() => setFetchedOrder(null))
+        .finally(() => setFetching(false));
+    }
+  }, [cachedOrder, orderId, authLoading]);
+
+  const order = cachedOrder || fetchedOrder;
+
+  if (authLoading || fetching) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8 animate-pulse">
         <div className="h-4 w-28 rounded bg-slate-200" />
@@ -32,8 +50,6 @@ export const OrderDetailPage = () => {
       </div>
     );
   }
-
-  const order = orders.find((item) => item.id === orderId);
 
   if (!order) {
     return (

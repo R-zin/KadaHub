@@ -27,7 +27,7 @@ export const HomePage = () => {
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               {[
                 { icon: Truck, label: "Tracked delivery" },
-                { icon: WalletCards, label: "Mock secure payment" },
+                { icon: WalletCards, label: "Razorpay secure payment" },
                 { icon: ShieldCheck, label: "Returns supported" }
               ].map(({ icon: Icon, label }) => (
                 <div key={label} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-700">
@@ -39,7 +39,14 @@ export const HomePage = () => {
           <div className="grid grid-cols-2 gap-3">
             {products.slice(0, 4).map((product) => (
               <Link key={product.id} to={`/products/${product.id}`} className="group overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                <img src={product.images[0]} alt={product.name} className="h-36 w-full object-cover transition group-hover:scale-105 sm:h-44" />
+                <img
+                  src={(product.images && product.images[0]) || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80"}
+                  alt={product.name}
+                  className="h-36 w-full object-cover transition group-hover:scale-105 sm:h-44"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80";
+                  }}
+                />
                 <div className="p-3">
                   <p className="text-xs font-semibold uppercase text-slate-500">{product.category}</p>
                   <p className="line-clamp-1 font-semibold text-slate-950">{product.name}</p>

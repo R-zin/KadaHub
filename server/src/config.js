@@ -18,19 +18,27 @@ module.exports = {
   },
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 10),
 
-  clientOrigin: (process.env.CLIENT_ORIGIN || 'http://127.0.0.1:5173,http://localhost:5173')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean),
+  clientOrigin: [
+    ...(process.env.CLIENT_ORIGIN || 'http://127.0.0.1:5173,http://localhost:5173')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL.trim()] : [])
+  ],
 
   storage: {
     driver: process.env.STORAGE_DRIVER || 'local',
-    uploadDir: process.env.UPLOAD_DIR || 'uploads'
+    uploadDir: process.env.UPLOAD_DIR || 'uploads',
+    supabaseUrl: process.env.SUPABASE_URL || '',
+    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+    supabaseBucket: process.env.SUPABASE_STORAGE_BUCKET || 'product-images'
   },
   payment: {
     driver: process.env.PAYMENT_DRIVER || 'mock',
-    stripeSecretKey: process.env.STRIPE_SECRET_KEY || '',
-    currency: (process.env.STRIPE_CURRENCY || 'usd').toLowerCase()
+    razorpayKeyId: process.env.RAZORPAY_KEY_ID || '',
+    razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || '',
+    currency: (process.env.PAYMENT_CURRENCY || 'inr').toLowerCase(),
+    stripeSecretKey: process.env.STRIPE_SECRET_KEY || ''
   },
   tryOn: { driver: process.env.TRYON_DRIVER || 'mock' },
   notifications: { driver: process.env.NOTIFICATION_DRIVER || 'console' }

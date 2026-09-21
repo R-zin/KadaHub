@@ -25,23 +25,36 @@ const stats = async () => {
       SELECT
         (SELECT COUNT(*) FROM users) AS total_users,
         (SELECT COUNT(*) FROM users WHERE is_active = TRUE) AS active_users,
+        (SELECT COUNT(*) FROM users WHERE role = 'customer') AS customers,
         (SELECT COUNT(*) FROM users WHERE role = 'seller') AS sellers,
+        (SELECT COUNT(*) FROM users WHERE role = 'delivery') AS delivery_agents,
+        (SELECT COUNT(*) FROM users WHERE role = 'admin') AS admins,
         (SELECT COUNT(*) FROM products) AS products,
         (SELECT COUNT(*) FROM products WHERE stock > 0 AND stock <= 20) AS low_stock,
         (SELECT COUNT(*) FROM products WHERE stock = 0) AS out_of_stock,
-        (SELECT COUNT(*) FROM returns WHERE status = 'Requested') AS pending_returns
+        (SELECT COUNT(*) FROM returns) AS total_returns,
+        (SELECT COUNT(*) FROM returns WHERE status = 'Requested') AS pending_returns,
+        (SELECT COUNT(*) FROM payments WHERE type = 'refund' AND status = 'Paid') AS refunds,
+        (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE type = 'refund' AND status = 'Paid') AS refunded_amount
     `)
   ]);
+  const c = counts.rows[0];
   return {
     totalRevenue: Number(rev.rows[0].revenue),
     totalOrders: Number(rev.rows[0].orders),
-    totalUsers: Number(counts.rows[0].total_users),
-    activeUsers: Number(counts.rows[0].active_users),
-    sellers: Number(counts.rows[0].sellers),
-    products: Number(counts.rows[0].products),
-    lowStock: Number(counts.rows[0].low_stock),
-    outOfStock: Number(counts.rows[0].out_of_stock),
-    pendingReturns: Number(counts.rows[0].pending_returns)
+    totalUsers: Number(c.total_users),
+    activeUsers: Number(c.active_users),
+    customers: Number(c.customers),
+    sellers: Number(c.sellers),
+    deliveryAgents: Number(c.delivery_agents),
+    admins: Number(c.admins),
+    products: Number(c.products),
+    lowStock: Number(c.low_stock),
+    outOfStock: Number(c.out_of_stock),
+    totalReturns: Number(c.total_returns),
+    pendingReturns: Number(c.pending_returns),
+    refunds: Number(c.refunds),
+    refundedAmount: Number(c.refunded_amount)
   };
 };
 
@@ -50,8 +63,35 @@ const listUsers = async () => {
   return rows.map((r) => ({ ...publicUser(r), isActive: r.is_active, createdAt: r.created_at }));
 };
 
-const setUserActive = async (id, isActive) => {
-  const { rows } = await query('UPDATE users SET is_active = $1 WHERE id = $2 RETURNING *', [!!isActive, Number(id)]);
+const setUserActive = async (id, isActive, adminId) => {
+  const numId = Number(id);
+  if (isNaN(numId) || !Number.isInteger(numId) || numId <= 0) {
+    throw ApiError.notFound('User not found');
+  }
+  if (adminId && numId === Number(adminId) && !isActive) {
+    throw ApiError.badRequest('Cannot deactivate your own administrator account');
+  }
+  const { rows } = await query('UPDATE users SET is_active = $1 WHERE id = $2 RETURNING *', [!!isActive, numId]);
+  if (!rows.length) throw ApiError.notFound('User not found');
+  return { ...publicUser(rows[0]), isActive: rows[0].is_active };
+};
+
+const setUserRole = async (id, role, adminId) => {
+  const numId = Number(id);
+  if (isNaN(numId) || !Number.isInteger(numId) || numId <= 0) {
+    throw ApiError.notFound('User not found');
+  }
+  const validRoles = ['customer', 'seller', 'delivery', 'admin'];
+  if (!validRoles.includes(role)) {
+    throw ApiError.badRequest(`Role must be one of: ${validRoles.join(', ')}`);
+  }
+  if (adminId && numId === Number(adminId) && role !== 'admin') {
+    const { rows: adminCount } = await query("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND is_active = TRUE");
+    if (Number(adminCount[0].count) <= 1) {
+      throw ApiError.badRequest('Cannot change the role of the only active administrator');
+    }
+  }
+  const { rows } = await query('UPDATE users SET role = $1 WHERE id = $2 RETURNING *', [role, numId]);
   if (!rows.length) throw ApiError.notFound('User not found');
   return { ...publicUser(rows[0]), isActive: rows[0].is_active };
 };
@@ -78,10 +118,38 @@ const transactions = async () => {
   }));
 };
 
-/** Simple sales/inventory report series for charts. */
-const reports = async () => {
+/** Sales/inventory report series for charts with optional date range filtering. */
+const reports = async (opts = {}) => {
+  const where = ["o.status <> 'Cancelled'"];
+  const params = [];
+
+  if (opts.startDate || opts.endDate) {
+    if (opts.startDate) {
+      const start = new Date(opts.startDate);
+      if (isNaN(start.getTime())) throw ApiError.badRequest('Invalid startDate format');
+      params.push(start.toISOString());
+      where.push(`o.placed_at >= $${params.length}`);
+    }
+    if (opts.endDate) {
+      const end = new Date(opts.endDate);
+      if (isNaN(end.getTime())) throw ApiError.badRequest('Invalid endDate format');
+      params.push(end.toISOString());
+      where.push(`o.placed_at <= $${params.length}`);
+    }
+    if (opts.startDate && opts.endDate) {
+      if (new Date(opts.startDate) > new Date(opts.endDate)) {
+        throw ApiError.badRequest('Invalid date range: startDate must be before or equal to endDate');
+      }
+    }
+  } else {
+    const days = Number(opts.days) > 0 ? Number(opts.days) : 7;
+    params.push(days);
+    where.push(`o.placed_at > now() - ($${params.length} || ' days')::interval`);
+  }
+
   const { rows: sales } = await query(
     `SELECT
+       to_char(date_trunc('day', o.placed_at), 'YYYY-MM-DD') AS date,
        to_char(date_trunc('day', o.placed_at), 'Dy') AS day,
        COUNT(DISTINCT o.id) AS orders,
        COALESCE(SUM(
@@ -93,13 +161,15 @@ const reports = async () => {
        ), 0) AS revenue
      FROM orders o
      LEFT JOIN payments p ON p.order_id = o.id
-     WHERE o.placed_at > now() - interval '7 days' AND o.status <> 'Cancelled'
-     GROUP BY 1 ORDER BY MIN(date_trunc('day', o.placed_at))`
+     WHERE ${where.join(' AND ')}
+     GROUP BY 1, 2 ORDER BY MIN(date_trunc('day', o.placed_at))`,
+    params
   );
+
   const { rows: inventory } = await query(
     `SELECT
        c.name AS category,
-       COALESCE(SUM(p.stock),0) AS stock,
+       COALESCE(SUM(p.stock), 0) AS stock,
        COUNT(p.id) AS products,
        COALESCE(SUM(CASE WHEN p.stock = 0 THEN 1 ELSE 0 END), 0) AS out_of_stock,
        COALESCE(SUM(CASE WHEN p.stock > 0 AND p.stock <= 20 THEN 1 ELSE 0 END), 0) AS low_stock
@@ -107,8 +177,14 @@ const reports = async () => {
      LEFT JOIN products p ON p.category_id = c.id
      GROUP BY c.name ORDER BY c.name`
   );
+
   return {
-    salesByDay: sales.map((r) => ({ day: r.day, orders: Number(r.orders), revenue: Number(r.revenue) })),
+    salesByDay: sales.map((r) => ({
+      date: r.date,
+      day: r.day,
+      orders: Number(r.orders),
+      revenue: Number(r.revenue)
+    })),
     inventoryByCategory: inventory.map((r) => ({
       category: r.category,
       stock: Number(r.stock),
@@ -138,4 +214,4 @@ const createUser = async ({ name, email, password, role = 'customer', storeName,
   return { ...publicUser(rows[0]), isActive: rows[0].is_active, createdAt: rows[0].created_at };
 };
 
-module.exports = { stats, listUsers, setUserActive, createUser, categoryDistribution, transactions, reports };
+module.exports = { stats, listUsers, setUserActive, setUserRole, createUser, categoryDistribution, transactions, reports };

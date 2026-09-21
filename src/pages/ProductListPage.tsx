@@ -1,5 +1,5 @@
 import { SlidersHorizontal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ProductFilters, defaultFilters } from "../components/ProductFilters";
 import { ProductGrid } from "../components/ProductGrid";
@@ -13,6 +13,12 @@ export const ProductListPage = () => {
   const [params] = useSearchParams();
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState<ProductFiltersState>({ ...defaultFilters, search: params.get("q") ?? "" });
+
+  useEffect(() => {
+    const q = params.get("q") ?? "";
+    setFilters((prev) => (prev.search === q ? prev : { ...prev, search: q }));
+  }, [params]);
+
   const visible = useMemo(() => filterProducts(products, filters), [products, filters]);
 
   return (

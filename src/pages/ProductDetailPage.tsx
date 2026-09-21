@@ -1,22 +1,39 @@
 import { Heart, Minus, Plus, ShoppingBag, ShoppingCart, Wand2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { PriceDisplay } from "../components/PriceDisplay";
 import { ProductGrid } from "../components/ProductGrid";
 import { RatingStars } from "../components/RatingStars";
 import { Badge, Button, EmptyState, IconButton, SectionHeader } from "../components/ui";
 import { useApp } from "../context/AppContext";
+import { productService } from "../services/productService";
 import { canUseVirtualTryOn } from "../services/tryOnService";
+import type { Product } from "../types";
 
 export const ProductDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { products, addToCart, wishlist, toggleWishlist, productsLoading } = useApp();
-  const product = products.find((item) => item.id === id);
+  const cachedProduct = products.find((item) => item.id === id);
+  const [fetchedProduct, setFetchedProduct] = useState<Product | null>(null);
+  const [fetching, setFetching] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [imageIndex, setImageIndex] = useState(0);
 
-  if (productsLoading) {
+  useEffect(() => {
+    if (!cachedProduct && id && !productsLoading) {
+      setFetching(true);
+      productService
+        .getProductById(id)
+        .then((prod) => setFetchedProduct(prod))
+        .catch(() => setFetchedProduct(null))
+        .finally(() => setFetching(false));
+    }
+  }, [cachedProduct, id, productsLoading]);
+
+  const product = cachedProduct || fetchedProduct;
+
+  if (productsLoading || fetching) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-12">
         <div className="grid gap-8 lg:grid-cols-[1fr_460px] animate-pulse">
@@ -40,26 +57,44 @@ export const ProductDetailPage = () => {
   const related = products.filter((item) => item.category === product.category && item.id !== product.id).slice(0, 4);
   const wished = wishlist.includes(product.id);
 
+const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80";
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
       <div className="grid gap-8 lg:grid-cols-[1fr_460px]">
         <section>
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <img src={product.images[imageIndex]} alt={product.name} className="h-[460px] w-full object-cover" />
+            <img
+              src={(product.images && product.images[imageIndex]) || FALLBACK_IMAGE}
+              alt={product.name}
+              className="h-[460px] w-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = FALLBACK_IMAGE;
+              }}
+            />
           </div>
-          <div className="mt-3 flex gap-3">
-            {product.images.map((image, index) => (
-              <button
-                key={image}
-                type="button"
-                aria-label={`View photo ${index + 1} of ${product.name}`}
-                className={`h-20 w-20 overflow-hidden rounded-md border ${index === imageIndex ? "border-primary-600 ring-2 ring-primary-500/30" : "border-slate-200"}`}
-                onClick={() => setImageIndex(index)}
-              >
-                <img src={image} alt={`${product.name} thumbnail ${index + 1}`} className="h-full w-full object-cover" />
-              </button>
-            ))}
-          </div>
+          {product.images && product.images.length > 0 && (
+            <div className="mt-3 flex gap-3">
+              {product.images.map((image, index) => (
+                <button
+                  key={`${image}-${index}`}
+                  type="button"
+                  aria-label={`View photo ${index + 1} of ${product.name}`}
+                  className={`h-20 w-20 overflow-hidden rounded-md border ${index === imageIndex ? "border-primary-600 ring-2 ring-primary-500/30" : "border-slate-200"}`}
+                  onClick={() => setImageIndex(index)}
+                >
+                  <img
+                    src={image || FALLBACK_IMAGE}
+                    alt={`${product.name} thumbnail ${index + 1}`}
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = FALLBACK_IMAGE;
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
         </section>
         <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap gap-2">

@@ -13,12 +13,21 @@ const icons = {
   puzzle: Puzzle
 };
 
+const FALLBACK_CATEGORY_IMAGE = "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&auto=format&fit=crop&q=80";
+
 export const CategoryCard = ({ category }: { category: Category }) => {
   const Icon = icons[category.icon as keyof typeof icons] ?? ShoppingBasket;
   return (
     <Link to={`/category/${category.slug}`} className="group overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft">
       <div className="aspect-[5/3] overflow-hidden bg-slate-100">
-        <img src={category.image} alt={category.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+        <img
+          src={category.image || FALLBACK_CATEGORY_IMAGE}
+          alt={category.name}
+          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = FALLBACK_CATEGORY_IMAGE;
+          }}
+        />
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">

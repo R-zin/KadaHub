@@ -236,6 +236,10 @@ const run = async (client) => {
 
     // Categories + subcategories
     const catIdByName = {};
+    const subcategoryValues = [];
+    const subcategoryParams = [];
+    let subParamIdx = 1;
+
     for (const c of CATEGORIES) {
       const { rows } = await client.query(
         'INSERT INTO categories (name, slug, description, image, icon) VALUES ($1,$2,$3,$4,$5) RETURNING id',
@@ -243,42 +247,76 @@ const run = async (client) => {
       );
       catIdByName[c.name] = rows[0].id;
       for (const sub of c.subcategories) {
-        await client.query('INSERT INTO category_subcategories (category_id, name) VALUES ($1,$2)', [rows[0].id, sub]);
+        subcategoryValues.push(`($${subParamIdx++}, $${subParamIdx++})`);
+        subcategoryParams.push(rows[0].id, sub);
       }
+    }
+    if (subcategoryValues.length) {
+      await client.query(
+        `INSERT INTO category_subcategories (category_id, name) VALUES ${subcategoryValues.join(',')}`,
+        subcategoryParams
+      );
     }
 
     // Products (+images). Brand storefronts map to their seller.
     const productIdByName = {};
-    for (const p of PRODUCTS) {
-      const store = storeForProduct(p);
-      const sellerId = sellerIdByStore[store] || demoSellerId;
-      const discount = p.originalPrice ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100) : 0;
+    const allImagesToInsert = [];
+    const CHUNK_SIZE = 25;
+
+    for (let i = 0; i < PRODUCTS.length; i += CHUNK_SIZE) {
+      const chunk = PRODUCTS.slice(i, i + CHUNK_SIZE);
+      const valueClauses = [];
+      const params = [];
+      let pIdx = 1;
+
+      for (const p of chunk) {
+        const store = storeForProduct(p);
+        const sellerId = sellerIdByStore[store] || demoSellerId;
+        const discount = p.originalPrice ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100) : 0;
+        valueClauses.push(`($${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++},$${pIdx++})`);
+        params.push(
+          sellerId, catIdByName[p.category], p.subcategory, p.name, p.price, p.originalPrice, discount,
+          p.brand, p.rating, p.reviews, p.stock, JSON.stringify(p.specs), JSON.stringify(p.tags),
+          !!p.isFeatured, !!p.isNew, !!p.isBestSeller, p.tryOn && p.category === 'Clothing', p.productType,
+          descriptionFor(p)
+        );
+      }
+
       const { rows } = await client.query(
         `INSERT INTO products (seller_id, category_id, subcategory, name, price, original_price, discount,
            brand, rating, review_count, stock, specifications, tags, is_featured, is_new, is_best_seller,
            is_virtual_try_on_supported, product_type, description)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
-        [sellerId, catIdByName[p.category], p.subcategory, p.name, p.price, p.originalPrice, discount,
-         p.brand, p.rating, p.reviews, p.stock, JSON.stringify(p.specs), JSON.stringify(p.tags),
-         !!p.isFeatured, !!p.isNew, !!p.isBestSeller, p.tryOn && p.category === 'Clothing', p.productType,
-         descriptionFor(p)]
-      );
-      const pid = rows[0].id;
-      productIdByName[p.name] = pid;
-
-      await client.query(
-        'INSERT INTO product_images (product_id, url, sort_order, is_try_on_reference) VALUES ($1,$2,0,$3)',
-        [pid, p.image, p.tryOn && p.category === 'Clothing']
+         VALUES ${valueClauses.join(',')} RETURNING id, name`,
+        params
       );
 
-      if (p.extraImages && p.extraImages.length) {
-        for (let i = 0; i < p.extraImages.length; i++) {
-          await client.query(
-            'INSERT INTO product_images (product_id, url, sort_order, is_try_on_reference) VALUES ($1,$2,$3,FALSE)',
-            [pid, p.extraImages[i], i + 1]
-          );
+      for (let j = 0; j < chunk.length; j++) {
+        const p = chunk[j];
+        const pid = rows[j].id;
+        productIdByName[p.name] = pid;
+        allImagesToInsert.push({ pid, url: p.image, sortOrder: 0, isTryOn: p.tryOn && p.category === 'Clothing' });
+        if (p.extraImages && p.extraImages.length) {
+          for (let k = 0; k < p.extraImages.length; k++) {
+            allImagesToInsert.push({ pid, url: p.extraImages[k], sortOrder: k + 1, isTryOn: false });
+          }
         }
       }
+    }
+
+    // Batch insert product images in chunks of 50
+    for (let i = 0; i < allImagesToInsert.length; i += 50) {
+      const imgChunk = allImagesToInsert.slice(i, i + 50);
+      const imgValues = [];
+      const imgParams = [];
+      let iIdx = 1;
+      for (const imgItem of imgChunk) {
+        imgValues.push(`($${iIdx++},$${iIdx++},$${iIdx++},$${iIdx++})`);
+        imgParams.push(imgItem.pid, imgItem.url, imgItem.sortOrder, imgItem.isTryOn);
+      }
+      await client.query(
+        `INSERT INTO product_images (product_id, url, sort_order, is_try_on_reference) VALUES ${imgValues.join(',')}`,
+        imgParams
+      );
     }
 
     // Customer default address

@@ -21,7 +21,9 @@ const markAllRead = async (userId) => {
 };
 
 const dismiss = async (userId, id) => {
-  await query('DELETE FROM notifications WHERE id = $1 AND user_id = $2', [Number(id), userId]);
+  const numId = Number(id);
+  if (isNaN(numId) || !Number.isInteger(numId) || numId <= 0) return listFor(userId);
+  await query('DELETE FROM notifications WHERE id = $1 AND user_id = $2', [numId, userId]);
   return listFor(userId);
 };
 

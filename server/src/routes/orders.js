@@ -2,11 +2,46 @@ const express = require('express');
 const orderService = require('../services/orderService');
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
+const paymentService = require('../services/paymentService');
+const ApiError = require('../utils/ApiError');
 
 const router = express.Router();
 const asyncH = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 router.use(authenticate);
+
+// Razorpay: create a server-verified order for checkout
+router.post(
+  '/razorpay/create-order',
+  authorize('customer'),
+  asyncH(async (req, res) => {
+    const razorpayOrder = await orderService.createRazorpayOrder(req.user.id);
+    res.status(201).json(razorpayOrder);
+  })
+);
+
+// Payment verification endpoint (standalone verification check)
+router.post(
+  '/razorpay/verify-payment',
+  authorize('customer'),
+  validate({
+    razorpay_order_id: { required: true },
+    razorpay_payment_id: { required: true },
+    razorpay_signature: { required: true }
+  }),
+  asyncH(async (req, res) => {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const verification = await paymentService.verifySignature({
+      orderId: razorpay_order_id,
+      paymentId: razorpay_payment_id,
+      signature: razorpay_signature
+    });
+    if (!verification.valid) {
+      throw ApiError.badRequest(verification.reason || 'Payment verification failed');
+    }
+    res.json({ verified: true });
+  })
+);
 
 // Checkout: create an order from the current cart after a successful payment.
 router.post(

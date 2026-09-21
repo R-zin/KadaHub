@@ -7,6 +7,8 @@ import { Badge, Button, IconButton } from "./ui";
 import { PriceDisplay } from "./PriceDisplay";
 import { RatingStars } from "./RatingStars";
 
+const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80";
+
 export const ProductCard = ({ product }: { product: Product }) => {
   const { addToCart, wishlist, toggleWishlist } = useApp();
   const wished = wishlist.includes(product.id);
@@ -14,7 +16,15 @@ export const ProductCard = ({ product }: { product: Product }) => {
   return (
     <article className="group flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft">
       <Link to={`/products/${product.id}`} className="relative block aspect-[4/3] overflow-hidden bg-slate-100">
-        <img src={product.images[0]} alt={product.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+        <img
+          src={product.images[0] || FALLBACK_IMAGE}
+          alt={product.name}
+          loading="lazy"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = FALLBACK_IMAGE;
+          }}
+          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+        />
         <div className="absolute left-3 top-3 flex flex-wrap gap-2">
           {product.isNew && <Badge tone="primary">NEW</Badge>}
           {product.isBestSeller && <Badge tone="success">BEST SELLER</Badge>}

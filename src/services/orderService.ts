@@ -6,6 +6,13 @@ export const orderTimeline: OrderStatus[] = [
 ];
 
 export const orderService = {
+  createRazorpayOrder: () =>
+    api<{ order_id: string; amount: number; currency: string; key_id: string }>(
+      "/orders/razorpay/create-order",
+      { method: "POST" }
+    ),
+  verifyRazorpayPayment: (payment: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) =>
+    api<{ verified: boolean }>("/orders/razorpay/verify-payment", { method: "POST", body: payment }),
   checkout: (address: Address, payment?: unknown) =>
     api<{ order: Order }>("/orders/checkout", { method: "POST", body: { address, payment } }).then((d) => d.order),
   getOrders: () => api<{ orders: Order[] }>("/orders").then((d) => d.orders),

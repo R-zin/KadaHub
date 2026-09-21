@@ -17,7 +17,17 @@ const toReturn = (row) => ({
 
 /** Customer requests a return for a delivered order item. */
 const request = async (userId, { orderId, productId, reason }) => {
-  const { rows: orderRows } = await query('SELECT * FROM orders WHERE id = $1', [Number(orderId)]);
+  const numOrderId = Number(orderId);
+  const numProductId = Number(productId);
+  if (isNaN(numOrderId) || !Number.isInteger(numOrderId) || numOrderId <= 0 ||
+      isNaN(numProductId) || !Number.isInteger(numProductId) || numProductId <= 0) {
+    throw ApiError.badRequest('Invalid order ID or product ID');
+  }
+  if (!reason || typeof reason !== 'string' || !reason.trim()) {
+    throw ApiError.badRequest('Return reason is required');
+  }
+
+  const { rows: orderRows } = await query('SELECT * FROM orders WHERE id = $1', [numOrderId]);
   const order = orderRows[0];
   if (!order) throw ApiError.notFound('Order not found');
   if (Number(order.customer_id) !== Number(userId)) throw ApiError.forbidden('Not your order');
@@ -74,8 +84,13 @@ const listFor = async (user) => {
  * All in one transaction.
  */
 const approve = async (returnId, admin) => {
+  const numReturnId = Number(returnId);
+  if (isNaN(numReturnId) || !Number.isInteger(numReturnId) || numReturnId <= 0) {
+    throw ApiError.notFound('Return not found');
+  }
+
   const result = await withTransaction(async (client) => {
-    const { rows } = await client.query('SELECT * FROM returns WHERE id = $1 FOR UPDATE', [Number(returnId)]);
+    const { rows } = await client.query('SELECT * FROM returns WHERE id = $1 FOR UPDATE', [numReturnId]);
     const ret = rows[0];
     if (!ret) throw ApiError.notFound('Return not found');
     if (ret.status !== 'Requested') {
@@ -132,12 +147,23 @@ const approve = async (returnId, admin) => {
 
 /** Admin rejects a return. */
 const reject = async (returnId, admin) => {
+  const numReturnId = Number(returnId);
+  if (isNaN(numReturnId) || !Number.isInteger(numReturnId) || numReturnId <= 0) {
+    throw ApiError.notFound('Return not found');
+  }
+
+  const { rows: existing } = await query('SELECT id, status, customer_id FROM returns WHERE id = $1', [numReturnId]);
+  if (!existing.length) throw ApiError.notFound('Return not found');
+  if (existing[0].status !== 'Requested') {
+    throw ApiError.conflict(`Cannot reject return in status "${existing[0].status}" (only Requested returns can be rejected)`);
+  }
+
   const { rows } = await query(
     `UPDATE returns SET status = 'Rejected', reviewed_by = $1, resolved_at = now()
      WHERE id = $2 AND status = 'Requested' RETURNING *`,
-    [admin.id, Number(returnId)]
+    [admin.id, numReturnId]
   );
-  if (!rows.length) throw ApiError.conflict('Return not found or already resolved');
+  if (!rows.length) throw ApiError.conflict('Return already resolved');
   await notify(rows[0].customer_id, `Your return request was rejected.`);
   return toReturn(rows[0]);
 };

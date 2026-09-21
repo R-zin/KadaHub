@@ -10,7 +10,7 @@ const validate = (rules, source = 'body') => (req, res, next) => {
 
   for (const [field, rule] of Object.entries(rules)) {
     const value = data[field];
-    const missing = value === undefined || value === null || value === '';
+    const missing = value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '');
 
     if (missing) {
       if (rule.required) problems.push(`${field} is required`);
@@ -24,6 +24,7 @@ const validate = (rules, source = 'body') => (req, res, next) => {
     if (rule.enum && !rule.enum.includes(value)) problems.push(`${field} must be one of: ${rule.enum.join(', ')}`);
     if (rule.max && String(value).length > rule.max) problems.push(`${field} is too long (max ${rule.max})`);
     if (rule.min !== undefined && typeof value === 'number' && value < rule.min) problems.push(`${field} must be >= ${rule.min}`);
+    if (rule.min !== undefined && typeof value === 'string' && value.trim().length < rule.min) problems.push(`${field} must be at least ${rule.min} characters`);
   }
 
   if (problems.length) return next(ApiError.badRequest('Validation failed', problems));

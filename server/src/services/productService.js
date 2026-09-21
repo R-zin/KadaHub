@@ -87,7 +87,9 @@ const list = async (opts = {}) => {
 };
 
 const getById = async (id) => {
-  const { rows } = await query(`${BASE_SELECT} WHERE p.id = $1`, [Number(id)]);
+  const numId = Number(id);
+  if (isNaN(numId) || !Number.isInteger(numId) || numId <= 0) throw ApiError.notFound('Product not found');
+  const { rows } = await query(`${BASE_SELECT} WHERE p.id = $1`, [numId]);
   if (!rows.length) throw ApiError.notFound('Product not found');
   return toProduct(rows[0]);
 };
@@ -97,8 +99,14 @@ const create = async (sellerId, data) => {
   if (!data.name || typeof data.name !== 'string' || !data.name.trim()) {
     throw ApiError.badRequest('Product name is required');
   }
-  if (data.price == null || isNaN(Number(data.price)) || Number(data.price) < 0) {
-    throw ApiError.badRequest('Valid price (>= 0) is required');
+  if (data.name.trim().length > 180) {
+    throw ApiError.badRequest('Product name cannot exceed 180 characters');
+  }
+  if (data.description && typeof data.description === 'string' && data.description.length > 10000) {
+    throw ApiError.badRequest('Product description cannot exceed 10000 characters');
+  }
+  if (data.price == null || data.price === '' || isNaN(Number(data.price)) || Number(data.price) <= 0) {
+    throw ApiError.badRequest('Valid price (> 0) is required');
   }
   const stock = Number(data.stock || 0);
   if (isNaN(stock) || !Number.isInteger(stock) || stock < 0) {
@@ -146,8 +154,14 @@ const update = async (id, data, actor) => {
   if (data.name !== undefined && (!data.name || typeof data.name !== 'string' || !data.name.trim())) {
     throw ApiError.badRequest('Product name cannot be empty');
   }
-  if (data.price !== undefined && (isNaN(Number(data.price)) || Number(data.price) < 0)) {
-    throw ApiError.badRequest('Valid price (>= 0) is required');
+  if (data.name !== undefined && data.name.trim().length > 180) {
+    throw ApiError.badRequest('Product name cannot exceed 180 characters');
+  }
+  if (data.description && typeof data.description === 'string' && data.description.length > 10000) {
+    throw ApiError.badRequest('Product description cannot exceed 10000 characters');
+  }
+  if (data.price !== undefined && (isNaN(Number(data.price)) || Number(data.price) <= 0)) {
+    throw ApiError.badRequest('Valid price (> 0) is required');
   }
   if (data.stock !== undefined) {
     const stock = Number(data.stock);
@@ -245,7 +259,9 @@ const setStock = async (id, stock, actor) => {
 // ---- helpers ---------------------------------------------------------------
 
 const rawById = async (id) => {
-  const { rows } = await query(`${BASE_SELECT} WHERE p.id = $1`, [Number(id)]);
+  const numId = Number(id);
+  if (isNaN(numId) || !Number.isInteger(numId) || numId <= 0) throw ApiError.notFound('Product not found');
+  const { rows } = await query(`${BASE_SELECT} WHERE p.id = $1`, [numId]);
   if (!rows.length) throw ApiError.notFound('Product not found');
   return rows[0];
 };
@@ -276,10 +292,20 @@ const validateSubcategory = async (categoryId, categoryName, subcategory) => {
 };
 
 const saveImages = async (productId, images, replace = false) => {
-  if (!Array.isArray(images) || !images.length) return;
+  if (!Array.isArray(images)) return;
   if (replace) await query('DELETE FROM product_images WHERE product_id = $1', [Number(productId)]);
-  const values = images.map((url, i) => `($1, $${i + 2}, ${i})`).join(', ');
-  const params = [Number(productId), ...images];
+  const validImages = images
+    .filter((url) => typeof url === 'string' && url.trim().length > 0)
+    .map((url) => url.trim());
+  if (!validImages.length) return;
+
+  for (const url of validImages) {
+    if (url.length > 500) {
+      throw ApiError.badRequest('Image URL cannot exceed 500 characters');
+    }
+  }
+  const values = validImages.map((url, i) => `($1, $${i + 2}, ${i})`).join(', ');
+  const params = [Number(productId), ...validImages];
   await query(`INSERT INTO product_images (product_id, url, sort_order) VALUES ${values}`, params);
 };
 

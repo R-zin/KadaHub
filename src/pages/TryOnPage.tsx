@@ -1,16 +1,22 @@
 import { Camera, ImagePlus, Save, SplitSquareHorizontal, Wand2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { CameraCapture } from "../components/CameraCapture";
 import { Button, EmptyState, ErrorState } from "../components/ui";
 import { useApp } from "../context/AppContext";
+import { productService } from "../services/productService";
 import { canUseVirtualTryOn, tryOnService } from "../services/tryOnService";
-import type { TryOnResult } from "../types";
+import type { Product, TryOnResult } from "../types";
 
 export const TryOnPage = () => {
   const { productId } = useParams();
   const navigate = useNavigate();
-  const { products, generateTryOn, saveTryOn, addToCart } = useApp();
-  const product = products.find((item) => item.id === productId);
+  const { products, productsLoading, generateTryOn, saveTryOn, addToCart } = useApp();
+
+  const cachedProduct = products.find((item) => item.id === productId);
+  const [fetchedProduct, setFetchedProduct] = useState<Product | null>(null);
+  const [fetchingProduct, setFetchingProduct] = useState(false);
+
   const [sourceImage, setSourceImage] = useState("");
   const [size, setSize] = useState("M");
   const [color, setColor] = useState("Original");
@@ -18,6 +24,40 @@ export const TryOnPage = () => {
   const [compare, setCompare] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TryOnResult | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  useEffect(() => {
+    if (!cachedProduct && productId && !productsLoading) {
+      setFetchingProduct(true);
+      productService
+        .getProductById(productId)
+        .then((prod) => setFetchedProduct(prod))
+        .catch(() => setFetchedProduct(null))
+        .finally(() => setFetchingProduct(false));
+    }
+  }, [cachedProduct, productId, productsLoading]);
+
+  const product = cachedProduct || fetchedProduct;
+
+  useEffect(() => {
+    return () => {
+      // Clean up temporary image if user navigates away before generating/saving
+      if (sourceImage && !result) {
+        tryOnService.cleanupTempImage(sourceImage);
+      }
+    };
+  }, [sourceImage, result]);
+
+  if (productsLoading || fetchingProduct) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-12 animate-pulse">
+        <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+          <div className="h-96 rounded-lg bg-slate-200" />
+          <div className="h-96 rounded-lg bg-slate-200" />
+        </div>
+      </div>
+    );
+  }
 
   if (!canUseVirtualTryOn(product)) {
     return <div className="mx-auto max-w-5xl px-4 py-10"><EmptyState title="Virtual Try-On unavailable" message="This feature is shown only for selected supported clothing products." action={<Link to="/products"><Button>Browse Products</Button></Link>} /></div>;
@@ -25,9 +65,14 @@ export const TryOnPage = () => {
 
   const onFile = async (file?: File) => {
     if (!file) return;
+    setIsCameraOpen(false);
     if (!file.type.startsWith("image/")) {
       setError("Failed image upload. Please select an image file.");
       return;
+    }
+    // Clean up previously uploaded temp image to avoid abandoned copies
+    if (sourceImage) {
+      tryOnService.cleanupTempImage(sourceImage);
     }
     try {
       setError("");
@@ -40,9 +85,30 @@ export const TryOnPage = () => {
     }
   };
 
+  const handleCameraCapture = async (file: File, previewUrl: string) => {
+    setIsCameraOpen(false);
+    setError("");
+    // Clean up previously uploaded temp image to avoid duplicate copies
+    if (sourceImage) {
+      tryOnService.cleanupTempImage(sourceImage);
+    }
+    // Instant optimistic preview
+    setSourceImage(previewUrl);
+    try {
+      setProcessing(true);
+      const uploadedUrl = await tryOnService.uploadImage(file);
+      setSourceImage(uploadedUrl);
+    } catch (err) {
+      // In offline/mock mode or if upload fails, preview remains available
+      console.warn("Storage upload note:", err);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const run = async () => {
     if (!sourceImage) {
-      setError("Upload an image or use the camera simulation first.");
+      setError("Upload an image or capture a photo with your camera first.");
       return;
     }
     try {
@@ -62,7 +128,7 @@ export const TryOnPage = () => {
       <div className="mt-4 grid gap-6 lg:grid-cols-[360px_1fr]">
         <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <h1 className="text-2xl font-black">Virtual Try-On</h1>
-          <p className="mt-2 text-sm text-slate-500">This is a frontend simulation for supported clothing. A real image processing API can be connected through the try-on service later.</p>
+          <p className="mt-2 text-sm text-slate-500">Capture a photo with your camera or upload an image to simulate clothing fit.</p>
           <div className="mt-5 rounded-lg bg-slate-50 p-3">
             <img src={product!.images[0]} alt={product!.name} className="h-52 w-full rounded-md object-cover" />
             <p className="mt-2 font-semibold">{product!.name}</p>
@@ -72,7 +138,15 @@ export const TryOnPage = () => {
               <ImagePlus className="h-4 w-4" /> Upload Image
               <input type="file" accept="image/*" className="hidden" onChange={(event) => onFile(event.target.files?.[0])} />
             </label>
-            <Button variant="secondary" onClick={() => setSourceImage("https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80")}><Camera className="h-4 w-4" /> Use Camera</Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setError("");
+                setIsCameraOpen(true);
+              }}
+            >
+              <Camera className="h-4 w-4" /> Use Camera
+            </Button>
             <label className="block text-sm font-medium">Size<select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2" value={size} onChange={(event) => setSize(event.target.value)}><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option></select></label>
             <label className="block text-sm font-medium">Color<select className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2" value={color} onChange={(event) => setColor(event.target.value)}><option>Original</option><option>Black</option><option>Blue</option><option>White</option><option>Red</option></select></label>
             <Button disabled={processing} onClick={run}><Wand2 className="h-4 w-4" /> {processing ? "Processing..." : "Generate Preview"}</Button>
@@ -81,8 +155,8 @@ export const TryOnPage = () => {
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           {error && <ErrorState message={error} />}
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <Preview title="Customer Image" image={sourceImage} placeholder="Upload or use camera to create a source preview." />
-            <Preview title="Generated Preview" image={result?.previewImage} placeholder={processing ? "Simulating AI processing..." : "Generated result will appear here."} />
+            <Preview title="Customer Image" image={sourceImage} placeholder="Upload or capture with camera to create a source preview." />
+            <Preview title="Generated Preview" image={result?.previewImage} placeholder={processing ? "Simulating clothing fit..." : "Generated result will appear here."} />
           </div>
           {result && (
             <div className="mt-5 flex flex-wrap gap-3">
@@ -95,6 +169,13 @@ export const TryOnPage = () => {
           {compare && result && <div className="mt-5 rounded-lg bg-primary-50 p-4 text-sm font-medium text-primary-800">Comparison view is active: source image and simulated clothing preview are shown side by side.</div>}
         </section>
       </div>
+
+      {isCameraOpen && (
+        <CameraCapture
+          onCapture={handleCameraCapture}
+          onClose={() => setIsCameraOpen(false)}
+        />
+      )}
     </div>
   );
 };

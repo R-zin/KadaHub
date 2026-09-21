@@ -30,9 +30,27 @@ const getCart = async (userId) => {
   return rows.map(toCartItem);
 };
 
+const parseProductId = (productId) => {
+  const numId = Number(productId);
+  if (isNaN(numId) || !Number.isInteger(numId) || numId <= 0) {
+    throw ApiError.badRequest('Invalid product ID');
+  }
+  return numId;
+};
+
+const parseQuantity = (quantity, allowZero = false) => {
+  const num = Number(quantity);
+  if (isNaN(num) || !Number.isInteger(num) || (allowZero ? num < 0 : num <= 0)) {
+    throw ApiError.badRequest(allowZero ? 'Quantity must be a non-negative integer' : 'Quantity must be a positive integer');
+  }
+  return num;
+};
+
 /** Add (or increment) an item, capped at available stock. */
 const addItem = async (userId, productId, quantity = 1) => {
-  const { rows } = await query('SELECT stock, name FROM products WHERE id = $1', [Number(productId)]);
+  const numProdId = parseProductId(productId);
+  const numQty = parseQuantity(quantity);
+  const { rows } = await query('SELECT stock, name FROM products WHERE id = $1', [numProdId]);
   const product = rows[0];
   if (!product) throw ApiError.notFound('Product not found');
   if (product.stock <= 0) throw ApiError.conflict(`"${product.name}" is out of stock`);
@@ -41,22 +59,29 @@ const addItem = async (userId, productId, quantity = 1) => {
     `INSERT INTO cart_items (user_id, product_id, quantity) VALUES ($1,$2, LEAST($3::int, $4::int))
      ON CONFLICT (user_id, product_id)
      DO UPDATE SET quantity = LEAST(cart_items.quantity + EXCLUDED.quantity, $4::int)`,
-    [userId, Number(productId), Number(quantity), product.stock]
+    [userId, numProdId, numQty, product.stock]
   );
   return getCart(userId);
 };
 
 const updateQuantity = async (userId, productId, quantity) => {
-  if (quantity <= 0) return removeItem(userId, productId);
-  const { rows } = await query('SELECT stock FROM products WHERE id = $1', [Number(productId)]);
+  const numProdId = parseProductId(productId);
+  const numQty = parseQuantity(quantity, true);
+  if (numQty === 0) return removeItem(userId, numProdId);
+  const { rows } = await query('SELECT stock, name FROM products WHERE id = $1', [numProdId]);
   if (!rows.length) throw ApiError.notFound('Product not found');
-  const qty = Math.min(Number(quantity), rows[0].stock);
-  await query('UPDATE cart_items SET quantity = $1 WHERE user_id = $2 AND product_id = $3', [qty, userId, Number(productId)]);
+  if (rows[0].stock <= 0) {
+    await removeItem(userId, numProdId);
+    throw ApiError.conflict(`"${rows[0].name}" is out of stock`);
+  }
+  const qty = Math.min(numQty, rows[0].stock);
+  await query('UPDATE cart_items SET quantity = $1 WHERE user_id = $2 AND product_id = $3', [qty, userId, numProdId]);
   return getCart(userId);
 };
 
 const removeItem = async (userId, productId) => {
-  await query('DELETE FROM cart_items WHERE user_id = $1 AND product_id = $2', [userId, Number(productId)]);
+  const numProdId = parseProductId(productId);
+  await query('DELETE FROM cart_items WHERE user_id = $1 AND product_id = $2', [userId, numProdId]);
   return getCart(userId);
 };
 

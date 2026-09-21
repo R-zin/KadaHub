@@ -33,7 +33,7 @@ interface AppContextValue {
   removeFromCart: (productId: string) => Promise<void>;
   clearCart: () => Promise<void>;
   toggleWishlist: (product: Product) => Promise<void>;
-  checkout: (address: Address) => Promise<Order>;
+  checkout: (address: Address, payment?: unknown) => Promise<Order>;
   refreshOrders: () => Promise<void>;
   advanceOrderStatus: (orderId: string) => Promise<void>;
   claimDeliveryOrder: (orderId: string) => Promise<void>;
@@ -223,8 +223,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   // ---- checkout / orders ----------------------------------------------------
-  const checkout = useCallback(async (address: Address) => {
-    const order = await orderService.checkout(address);
+  const checkout = useCallback(async (address: Address, payment?: unknown) => {
+    const order = await orderService.checkout(address, payment);
     setCart([]);
     await Promise.all([refreshOrders(), refreshProducts(), refreshNotifications()]);
     return order;

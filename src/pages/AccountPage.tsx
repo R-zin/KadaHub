@@ -23,7 +23,10 @@ export const AccountPage = () => {
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         <Panel title="Profile" icon={UserRound}><p>{user?.name ?? "Guest"}</p><p className="text-slate-500">{user?.email ?? "Not signed in"}</p></Panel>
         <Panel title="Addresses" icon={MapPin}><p>{defaultAddress.line1}</p><p className="text-slate-500">{defaultAddress.city}, {defaultAddress.region} {defaultAddress.postalCode}</p></Panel>
-        <Panel title="Payment Methods" icon={WalletCards}><p>Demo Visa ending 4242</p><p className="text-slate-500">Mock payment only. No card information is stored.</p></Panel>
+        <Panel title="Payment Methods" icon={WalletCards}>
+          <p className="font-semibold text-slate-900">Razorpay Standard Checkout</p>
+          <p className="text-slate-500">Supports UPI, Debit/Credit Cards, NetBanking, and Wallets. Secured and verified in real-time.</p>
+        </Panel>
         <Panel title="Notifications" icon={Bell}>{notifications.slice(0, 4).map((item) => <p key={item.id} className="rounded-md bg-slate-50 p-2 text-sm">{item.message}</p>)}</Panel>
       </div>
       <section className="mt-8 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">

@@ -11,10 +11,27 @@ const notFound = (req, res, next) => {
  */
 // eslint-disable-next-line no-unused-vars
 const errorHandler = (err, req, res, next) => {
-  const status = err.isApiError ? err.status : 500;
-  const message = err.isApiError ? err.message : 'Something went wrong. Please try again.';
+  // Handle JSON parse errors from express.json()
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({
+      error: { message: 'Malformed JSON in request body', status: 400 }
+    });
+  }
 
-  if (!err.isApiError) {
+  // Handle Multer upload errors (e.g. LIMIT_FILE_SIZE)
+  if (err.name === 'MulterError') {
+    return res.status(400).json({
+      error: { message: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (maximum allowed size is 5MB)' : (err.message || 'File upload error'), status: 400 }
+    });
+  }
+
+  const isClientError = err.status && err.status >= 400 && err.status < 500;
+  const status = err.isApiError ? err.status : (isClientError ? err.status : 500);
+  const message = err.isApiError
+    ? err.message
+    : (status === 400 ? (err.message || 'Bad request') : 'Something went wrong. Please try again.');
+
+  if (!err.isApiError && status === 500) {
     // Log internals server-side; never send them to the client.
     console.error('[unhandled error]', err);
   }
