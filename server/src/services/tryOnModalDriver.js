@@ -120,10 +120,25 @@ const readLocalAsBase64 = (urlOrPath) => {
   return buf.toString('base64');
 };
 
-const garmentDescriptionFor = (product) => {
-  // A short garment prompt improves conditioning. Product name is a good start.
+const garmentDescriptionFor = (product, size, color) => {
+  // A short, concrete prompt gives the model useful conditioning in addition to
+  // the garment photo. "Original" is an interface value, not a colour cue.
   const name = (product && product.name) || 'a garment';
-  return name;
+  const details = [name];
+  if (color && color.toLowerCase() !== 'original') details.push(`${color} colour`);
+  if (size) details.push(`size ${size}`);
+  return details.join(', ');
+};
+
+const garmentCategoryFor = (product) => {
+  const label = [product?.product_type, product?.subcategory, product?.name]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\b(dress|gown|saree|lehenga|jumpsuit)\b/.test(label)) return 'dresses';
+  if (/\b(jeans?|trousers?|pants?|shorts?|skirt|leggings?|joggers?)\b/.test(label)) return 'lower_body';
+  return 'upper_body';
 };
 
 const modalDriver = {
@@ -175,8 +190,8 @@ const modalDriver = {
     // --- call Modal endpoint ---
     const payload = {
       person_image_b64,
-      garment_description: garmentDescriptionFor(product),
-      category: 'upper_body',
+      garment_description: garmentDescriptionFor(product, size, color),
+      category: garmentCategoryFor(product),
       steps: config.tryOn.steps,
       seed: 42
     };

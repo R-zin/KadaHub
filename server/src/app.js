@@ -71,6 +71,14 @@ app.use(`/${config.storage.uploadDir}/tryon-temp`, authenticate, (req, res) => {
 });
 
 // 2. Serve public permanent uploads (e.g. products, categories)
+// Generated try-on previews are rendered by the SPA while developing on a
+// different origin (Vite :5173 -> API :4000). Helmet's default `same-origin`
+// resource policy makes the browser reject an otherwise valid PNG in that
+// setup, so allow only these public result images to be embedded.
+app.use(`/${config.storage.uploadDir}/tryon-results`, (req, res, next) => {
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
 app.use(`/${config.storage.uploadDir}`, express.static(path.join(process.cwd(), config.storage.uploadDir)));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
