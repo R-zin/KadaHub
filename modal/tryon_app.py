@@ -196,8 +196,8 @@ image = (
     image=image,
     volumes={MODEL_DIR: MODEL_VOLUME},
     secrets=[modal.Secret.from_name("kadahub-tryon")],
-    scaledown_window=300,      # keep warm between requests
-    timeout=240,               # hard cap per call
+    scaledown_window=300,      # idle containers scale down after 5 min (NOT kept warm)
+    timeout=600,               # hard cap per call — covers cold start + model load + inference
 )
 class TryOnModel:
     """Loads IDM-VTON + preprocessors once per container, then serves try-ons."""
