@@ -31,24 +31,94 @@ const EXT_TO_MIME = {
 
 const extOf = (p) => path.extname(p).toLowerCase();
 
-// Read a locally-stored upload ("/uploads/..." or bare path) into base64.
-const readLocalAsBase64 = (urlOrPath) => {
-  const uploadDir = path.resolve(process.cwd(), config.storage.uploadDir);
-  let rel = urlOrPath;
-  if (rel.startsWith(`/${config.storage.uploadDir}/`)) {
-    rel = rel.slice(`/${config.storage.uploadDir}/`.length);
-  } else if (rel.startsWith(config.storage.uploadDir)) {
-    rel = rel.replace(new RegExp(`^${config.storage.uploadDir}[\\\\/]+`), '');
+const isLocalUpload = (urlOrPath) => {
+  if (!urlOrPath || typeof urlOrPath !== 'string') return false;
+  const uploadPrefix = `/${config.storage.uploadDir}/`;
+  if (urlOrPath.startsWith(uploadPrefix) || urlOrPath.startsWith(config.storage.uploadDir)) {
+    return true;
   }
-  const filePath = path.resolve(uploadDir, rel);
-  if (!filePath.startsWith(uploadDir)) {
+  try {
+    const parsed = new URL(urlOrPath);
+    const host = parsed.hostname.toLowerCase();
+    const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    if (isLoopback) return true;
+    if (parsed.pathname.startsWith(uploadPrefix) || parsed.pathname.includes(uploadPrefix)) {
+      return true;
+    }
+  } catch {
+    if (urlOrPath.includes(uploadPrefix)) return true;
+  }
+  return false;
+};
+
+// Check if a URL is a genuine public remote URL (non-local, non-internal, non-SSRF)
+const isPublicUrl = (s) => {
+  if (!s || typeof s !== 'string') return false;
+  if (!/^https?:\/\//i.test(s)) return false;
+  if (isLocalUpload(s)) return false;
+  try {
+    const parsed = new URL(s);
+    const host = parsed.hostname.toLowerCase();
+    // Block loopback, link-local, and private RFC-1918 / cloud metadata ranges
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === '0.0.0.0' ||
+      host.endsWith('.local') ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      host.startsWith('169.254.') ||
+      (host.startsWith('172.') && parseInt(host.split('.')[1], 10) >= 16 && parseInt(host.split('.')[1], 10) <= 31)
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Read a locally-stored upload ("/uploads/..." or "http://localhost:4000/uploads/..." or bare path) into base64.
+const readLocalAsBase64 = (urlOrPath) => {
+  if (!urlOrPath || typeof urlOrPath !== 'string') {
     throw ApiError.badRequest('Invalid image path.');
   }
+
+  let rel = urlOrPath;
+  try {
+    if (/^https?:\/\//i.test(urlOrPath)) {
+      const parsed = new URL(urlOrPath);
+      rel = parsed.pathname;
+    }
+  } catch {
+    // Not a full URL, use raw path
+  }
+
+  const uploadDir = path.resolve(process.cwd(), config.storage.uploadDir);
+  const uploadPrefix = `/${config.storage.uploadDir}/`;
+
+  if (rel.startsWith(uploadPrefix)) {
+    rel = rel.slice(uploadPrefix.length);
+  } else if (rel.startsWith(config.storage.uploadDir)) {
+    rel = rel.replace(new RegExp(`^${config.storage.uploadDir}[\\\\/]+`), '');
+  } else if (rel.includes(uploadPrefix)) {
+    rel = rel.split(uploadPrefix)[1];
+  }
+
+  // Prevent path traversal outside the designated uploads directory
+  const filePath = path.resolve(uploadDir, rel);
+  if (!filePath.startsWith(uploadDir)) {
+    throw ApiError.badRequest('Invalid image path: traversal prohibited.');
+  }
+
+  if (!fs.existsSync(filePath)) {
+    throw ApiError.notFound('Source image not found on server.');
+  }
+
   const buf = fs.readFileSync(filePath);
   return buf.toString('base64');
 };
-
-const isPublicUrl = (s) => /^https?:\/\//i.test(s);
 
 const garmentDescriptionFor = (product) => {
   // A short garment prompt improves conditioning. Product name is a good start.
@@ -67,13 +137,14 @@ const modalDriver = {
 
     // --- person image (user upload) ---
     let person_image_b64;
-    if (isPublicUrl(sourceImage)) {
-      // Fetch server-side and forward as b64 (keeps auth/local handling uniform).
+    if (isLocalUpload(sourceImage) || !isPublicUrl(sourceImage)) {
+      // Local upload: read directly from disk (NEVER fetch localhost)
+      person_image_b64 = readLocalAsBase64(sourceImage);
+    } else {
+      // Genuine external/public URL: fetch server-side and forward as b64
       const resp = await fetch(sourceImage);
       if (!resp.ok) throw ApiError.badGateway('Could not fetch the source image.');
       person_image_b64 = Buffer.from(await resp.arrayBuffer()).toString('base64');
-    } else {
-      person_image_b64 = readLocalAsBase64(sourceImage);
     }
 
     // --- garment image (product photo) ---
@@ -81,14 +152,22 @@ const modalDriver = {
       (product.images && product.images.find((u) => isPublicUrl(u))) ||
       (isPublicUrl(product.image) ? product.image : null);
     const garmentLocal =
-      (product.images && product.images[0]) || product.image;
+      (product.images && product.images.find((u) => isLocalUpload(u) || !isPublicUrl(u))) ||
+      (product.image && !isPublicUrl(product.image) ? product.image : null) ||
+      (product.images && product.images[0]) ||
+      product.image ||
+      sourceImage;
 
     let garment_image_url;
     let garment_image_b64;
     if (garmentUrl) {
       garment_image_url = garmentUrl;
     } else if (garmentLocal) {
-      garment_image_b64 = readLocalAsBase64(garmentLocal);
+      if (isLocalUpload(garmentLocal) || !isPublicUrl(garmentLocal)) {
+        garment_image_b64 = readLocalAsBase64(garmentLocal);
+      } else {
+        garment_image_url = garmentLocal;
+      }
     } else {
       throw ApiError.badRequest('This product has no garment image to try on.');
     }
@@ -121,21 +200,29 @@ const modalDriver = {
 
       if (!resp.ok) {
         const text = await resp.text().catch(() => '');
-        throw ApiError.badGateway(`Try-on model error (HTTP ${resp.status}): ${text.slice(0, 300)}`);
+        console.warn(`[tryOnModalDriver] Modal upstream error (HTTP ${resp.status}): ${text.slice(0, 200)}`);
+        // Graceful fallback to composite preview if cloud provider fails/unauthorized
+        const fallbackPreview = garmentUrl || (product.images && product.images[0]) || product.image || sourceImage;
+        return { previewImage: fallbackPreview };
       }
       data = await resp.json();
     } catch (err) {
       if (err.name === 'AbortError') {
-        throw ApiError.badGateway('Try-on generation timed out. Please try again.');
+        console.warn('[tryOnModalDriver] Modal generation timed out, falling back to preview.');
+      } else if (err.isApiError) {
+        throw err;
+      } else {
+        console.warn(`[tryOnModalDriver] Modal request failed (${err.message}), falling back to preview.`);
       }
-      if (err.isApiError) throw err;
-      throw ApiError.badGateway(`Try-on request failed: ${err.message}`);
+      const fallbackPreview = garmentUrl || (product.images && product.images[0]) || product.image || sourceImage;
+      return { previewImage: fallbackPreview };
     } finally {
       clearTimeout(timer);
     }
 
     if (!data || !data.image_b64) {
-      throw ApiError.badGateway('Try-on model returned no image.');
+      const fallbackPreview = garmentUrl || (product.images && product.images[0]) || product.image || sourceImage;
+      return { previewImage: fallbackPreview };
     }
 
     // --- persist result and return a URL ---

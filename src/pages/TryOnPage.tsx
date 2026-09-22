@@ -1,5 +1,5 @@
 import { Camera, ImagePlus, Save, SplitSquareHorizontal, Wand2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CameraCapture } from "../components/CameraCapture";
 import { Button, EmptyState, ErrorState } from "../components/ui";
@@ -17,7 +17,11 @@ export const TryOnPage = () => {
   const [fetchedProduct, setFetchedProduct] = useState<Product | null>(null);
   const [fetchingProduct, setFetchingProduct] = useState(false);
 
-  const [sourceImage, setSourceImage] = useState("");
+  // Client-side renderable preview (blob: URL) for display in <img>
+  const [customerDisplayImage, setCustomerDisplayImage] = useState("");
+  // Server upload reference (path or URL) for Try-On generation API
+  const [uploadedSource, setUploadedSource] = useState("");
+
   const [size, setSize] = useState("M");
   const [color, setColor] = useState("Original");
   const [processing, setProcessing] = useState(false);
@@ -25,6 +29,14 @@ export const TryOnPage = () => {
   const [error, setError] = useState("");
   const [result, setResult] = useState<TryOnResult | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  // Ref tracking for clean unmount handling
+  const displayImageRef = useRef(customerDisplayImage);
+  displayImageRef.current = customerDisplayImage;
+  const uploadedSourceRef = useRef(uploadedSource);
+  uploadedSourceRef.current = uploadedSource;
+  const resultRef = useRef(result);
+  resultRef.current = result;
 
   useEffect(() => {
     if (!cachedProduct && productId && !productsLoading) {
@@ -41,12 +53,16 @@ export const TryOnPage = () => {
 
   useEffect(() => {
     return () => {
-      // Clean up temporary image if user navigates away before generating/saving
-      if (sourceImage && !result) {
-        tryOnService.cleanupTempImage(sourceImage);
+      // Clean up client-side object URL to prevent memory leaks
+      if (displayImageRef.current && displayImageRef.current.startsWith("blob:")) {
+        URL.revokeObjectURL(displayImageRef.current);
+      }
+      // Clean up temporary image on server if user navigates away before generating/saving
+      if (uploadedSourceRef.current && !resultRef.current) {
+        tryOnService.cleanupTempImage(uploadedSourceRef.current);
       }
     };
-  }, [sourceImage, result]);
+  }, []);
 
   if (productsLoading || fetchingProduct) {
     return (
@@ -70,14 +86,26 @@ export const TryOnPage = () => {
       setError("Failed image upload. Please select an image file.");
       return;
     }
-    // Clean up previously uploaded temp image to avoid abandoned copies
-    if (sourceImage) {
-      tryOnService.cleanupTempImage(sourceImage);
+
+    // Revoke previous client-side object URL when replacing
+    if (customerDisplayImage && customerDisplayImage.startsWith("blob:")) {
+      URL.revokeObjectURL(customerDisplayImage);
     }
+
+    // Clean up previously uploaded temp image to avoid abandoned copies
+    if (uploadedSource) {
+      tryOnService.cleanupTempImage(uploadedSource);
+    }
+
+    // Instant local preview via Blob URL (bypasses auth/network hurdles)
+    const localPreviewUrl = URL.createObjectURL(file);
+    setCustomerDisplayImage(localPreviewUrl);
+
     try {
       setError("");
       setProcessing(true);
-      setSourceImage(await tryOnService.uploadImage(file));
+      const serverUrl = await tryOnService.uploadImage(file);
+      setUploadedSource(serverUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed image upload. Please try again.");
     } finally {
@@ -88,16 +116,24 @@ export const TryOnPage = () => {
   const handleCameraCapture = async (file: File, previewUrl: string) => {
     setIsCameraOpen(false);
     setError("");
-    // Clean up previously uploaded temp image to avoid duplicate copies
-    if (sourceImage) {
-      tryOnService.cleanupTempImage(sourceImage);
+
+    // Revoke previous client-side object URL when replacing
+    if (customerDisplayImage && customerDisplayImage.startsWith("blob:") && customerDisplayImage !== previewUrl) {
+      URL.revokeObjectURL(customerDisplayImage);
     }
-    // Instant optimistic preview
-    setSourceImage(previewUrl);
+
+    // Clean up previously uploaded temp image to avoid duplicate copies
+    if (uploadedSource) {
+      tryOnService.cleanupTempImage(uploadedSource);
+    }
+
+    // Retain camera-generated preview URL for display
+    setCustomerDisplayImage(previewUrl);
+
     try {
       setProcessing(true);
-      const uploadedUrl = await tryOnService.uploadImage(file);
-      setSourceImage(uploadedUrl);
+      const serverUrl = await tryOnService.uploadImage(file);
+      setUploadedSource(serverUrl);
     } catch (err) {
       // In offline/mock mode or if upload fails, preview remains available
       console.warn("Storage upload note:", err);
@@ -107,14 +143,14 @@ export const TryOnPage = () => {
   };
 
   const run = async () => {
-    if (!sourceImage) {
+    if (!uploadedSource) {
       setError("Upload an image or capture a photo with your camera first.");
       return;
     }
     try {
       setProcessing(true);
       setError("");
-      setResult(await generateTryOn(product!, sourceImage, size, color));
+      setResult(await generateTryOn(product!, uploadedSource, size, color));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed Try-On generation.");
     } finally {
@@ -155,7 +191,7 @@ export const TryOnPage = () => {
         <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           {error && <ErrorState message={error} />}
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <Preview title="Customer Image" image={sourceImage} placeholder="Upload or capture with camera to create a source preview." />
+            <Preview title="Customer Image" image={customerDisplayImage} placeholder="Upload or capture with camera to create a source preview." />
             <Preview title="Generated Preview" image={result?.previewImage} placeholder={processing ? "Simulating clothing fit..." : "Generated result will appear here."} />
           </div>
           {result && (
